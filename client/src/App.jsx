@@ -36,11 +36,14 @@ export default function App() {
   // Direct Technician Deep-Link or PWA standalone launcher
   const isDirectTechRoute = pathname.startsWith('/tech') || pathname.startsWith('/technician') || urlParams.has('tech') || urlParams.has('job') || urlParams.get('view') === 'tech' || urlParams.get('app') === 'tech';
 
-  const isMobileUserAgent = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent || '');
+  const isMobileOrTabletUserAgent = typeof navigator !== 'undefined' && (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(navigator.userAgent || '') ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  );
 
   const isPhoneOrPwa = typeof window !== 'undefined' && (
     window.innerWidth < 768 ||
-    isMobileUserAgent ||
+    isMobileOrTabletUserAgent ||
     window.matchMedia('(display-mode: standalone)').matches ||
     window.navigator.standalone === true ||
     isDirectTechRoute
@@ -277,7 +280,7 @@ export default function App() {
     setSelectedJobId(null);
     setTimeout(() => {
       setSelectedJobId(jobId);
-      setActiveTab('jobs');
+      setActiveTab(isMobileView ? 'mobile_home' : 'jobs');
     }, 10);
   };
 
@@ -359,12 +362,12 @@ export default function App() {
         />
       )}
 
-      {/* Mobile App Mode or Desktop Admin Mode */}
+      {/* Mobile App Mode (Android + iPhone + iPad) or Desktop Admin Mode */}
       {isMobileView ? (
         !currentUser && !directJobIdFromUrl ? (
           <TechnicianLoginView onLoginSuccess={handleLoginSuccess} />
         ) : (
-          <div className="flex flex-col bg-slate-100 min-h-[100dvh] h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-hidden select-none relative">
+          <div className="flex flex-col bg-[#F5F3FF] min-h-[100dvh] h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-hidden select-none relative">
             {/* Desktop Tester Switch Back Button (Only for Admin / Manager previewing mobile app) */}
             {typeof window !== 'undefined' && window.innerWidth >= 768 && (currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER') && (
               <div className="fixed bottom-20 right-3 z-50">
@@ -381,19 +384,24 @@ export default function App() {
               </div>
             )}
 
-            {/* Clean Main Content Area with safe scrolling for iOS & Android */}
-            <main className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto overflow-x-hidden overscroll-contain">
-              {activeTab === 'mobile_home' && (
+            {/* Clean Main Content Area with safe scrolling for Android, iPhone & iPad */}
+            <main className="flex-1 w-full max-w-4xl mx-auto overflow-y-auto overflow-x-hidden overscroll-contain">
+              {(activeTab === 'mobile_home' || activeTab === 'tomorrow_tab' || activeTab === 'dashboard') && (
                 <MobileTechnicianView
                   onSelectJob={handleSelectJob}
                   initialJobId={selectedJobId}
+                  initialMainTab={activeTab === 'tomorrow_tab' ? 'tomorrow' : 'today'}
+                  onMainTabChange={(tab) => {
+                    if (tab === 'tomorrow') setActiveTab('tomorrow_tab');
+                    else if (tab === 'today') setActiveTab('mobile_home');
+                  }}
                   activeTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
                   currentUser={currentUser}
                   onLogout={handleLogout}
                 />
               )}
               {activeTab === 'calendar' && (
-                <div className="pb-28 pt-2 px-2">
+                <div className="pb-28 pt-2 px-2 sm:px-4">
                   <CalendarView
                     onSelectJob={handleSelectJob}
                     currentRole="TECHNICIAN"
@@ -402,7 +410,7 @@ export default function App() {
                 </div>
               )}
               {activeTab === 'jobs' && (
-                <div className="pb-28 pt-2 px-2">
+                <div className="pb-28 pt-2 px-2 sm:px-4">
                   <JobsView
                     initialJobId={selectedJobId}
                     onSelectCustomer={handleSelectCustomer}
@@ -423,10 +431,13 @@ export default function App() {
               )}
             </main>
 
-            {/* Fixed PWA Bottom Navigation (Red & White, safe area for Android + iPhone) */}
+            {/* Fixed PWA Bottom Navigation (safe area for Android + iPhone + iPad) */}
             <MobileBottomNav
               activeTab={activeTab === 'dashboard' ? 'mobile_home' : activeTab}
-              onTabChange={setActiveTab}
+              onTabChange={(nextTab) => {
+                setSelectedJobId(null);
+                setActiveTab(nextTab);
+              }}
               todayJobsCount={dashboardData?.counters?.today_jobs || 0}
             />
           </div>

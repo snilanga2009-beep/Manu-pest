@@ -204,27 +204,40 @@ export default function TechnicianProfileView({ onNavigate, currentUser, onLogou
   };
 
   return (
-    <div className="max-w-md mx-auto min-h-screen bg-slate-100 pb-28 font-sans">
-      {/* Top Header in Red & White Theme */}
-      <div className="bg-gradient-to-r from-red-600 via-rose-600 to-red-700 text-white p-5 sticky top-0 z-30 shadow-md">
-        <div className="flex items-center justify-between">
+    <div className="w-full max-w-4xl mx-auto min-h-screen bg-[#F5F3FF] pb-28 font-sans">
+      {/* Top Header in Purple & Orange Curved Wave UI */}
+      <div className="bg-gradient-to-br from-[#5B21B6] via-[#4C1D95] to-[#2E1065] text-white p-5 sticky top-0 z-30 shadow-xl rounded-b-[2rem] relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-44 h-24 pointer-events-none opacity-85">
+          <svg viewBox="0 0 200 100" preserveAspectRatio="none" className="w-full h-full">
+            <path d="M20,0 L200,0 L200,95 C130,90 80,35 20,0 Z" fill="#F97316" />
+          </svg>
+        </div>
+
+        <div className="flex items-center justify-between relative z-10">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-white text-red-600 flex items-center justify-center font-black text-lg shadow-md">
-              {techSession?.full_name ? techSession.full_name.substring(0, 2).toUpperCase() : 'TC'}
+            <div className="w-14 h-14 rounded-2xl bg-white p-0.5 border-2 border-amber-300 flex items-center justify-center shadow-lg overflow-hidden shrink-0">
+              <img
+                src="/pest-tech-man.jpg"
+                alt="Pest Control Technician"
+                className="w-full h-full object-cover rounded-xl"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
             </div>
             <div>
-              <h1 className="font-black text-base tracking-tight leading-tight">
-                {techSession?.full_name || 'Technician Account'}
+              <h1 className="font-black text-base sm:text-lg tracking-tight leading-tight text-white">
+                {techSession?.full_name || currentUser?.full_name || 'Technician Account'}
               </h1>
-              <div className="text-xs text-red-100 font-semibold flex items-center gap-1.5 mt-0.5">
+              <div className="text-xs text-amber-200 font-semibold flex items-center gap-1.5 mt-0.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-amber-300" />
-                <span>Verified Field Technician</span>
+                <span>Verified Field Technician &bull; {techSession?.phone || currentUser?.phone || 'Active'}</span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-              isOnline ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+              isOnline ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/40' : 'bg-amber-500/25 text-amber-200 border border-amber-400/40'
             }`}>
               {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
               {isOnline ? 'Online' : 'Offline'}
@@ -233,55 +246,92 @@ export default function TechnicianProfileView({ onNavigate, currentUser, onLogou
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
+      <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        {/* Purple & Orange Quick Navigation Menu Stack (Matching Reference UI Screen 3) */}
+        <div className="rounded-3xl overflow-hidden shadow-lg border border-purple-200 bg-white">
+          <div className="bg-gradient-to-r from-[#FF8A00] to-[#F97316] p-4 text-white flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+              <User className="w-5 h-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <div className="font-black text-sm truncate">
+                {techSession?.full_name || currentUser?.full_name || 'Pest Control Technician'}
+              </div>
+              <div className="text-[11px] text-orange-100 font-semibold truncate">
+                Quick Screen Switcher &bull; Android / iPhone / iPad
+              </div>
+            </div>
+          </div>
+          <div className="divide-y divide-purple-400/30 bg-gradient-to-b from-[#6D28D9] to-[#4C1D95] text-white">
+            {[
+              { id: 'mobile_home', label: 'Today Job List (Active Work)' },
+              { id: 'tomorrow_tab', label: 'Tomorrow Job List (Preview)' },
+              { id: 'calendar', label: 'Monthly & Daily Calendar' },
+              { id: 'jobs', label: 'All Assigned Jobs & Search' }
+            ].map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onNavigate && onNavigate(item.id)}
+                className="w-full py-3.5 px-4 text-xs font-black tracking-wide flex items-center justify-between hover:bg-white/10 transition cursor-pointer"
+              >
+                <span>{item.label}</span>
+                <ArrowRight className="w-4 h-4 text-amber-300" />
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* 1-Time Permanent Session Card */}
-        <div className="bg-white rounded-2xl p-4 shadow-xs border border-slate-200">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <Phone className="w-4 h-4 text-emerald-600" />
-              <h2 className="font-black text-slate-800 text-sm">1-Time Phone Sign-In</h2>
-            </div>
-            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase">
-              Permanent Session
-            </span>
-          </div>
-
-          <div className="mt-3 space-y-2 text-xs">
-            <div className="flex justify-between py-1 border-b border-slate-50">
-              <span className="text-slate-500">Technician Name:</span>
-              <span className="font-bold text-slate-800">{techSession?.full_name || 'Not logged in'}</span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-slate-50">
-              <span className="text-slate-500">Mobile Phone:</span>
-              <span className="font-bold text-slate-800">{techSession?.phone || '—'}</span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-slate-50">
-              <span className="text-slate-500">Session Status:</span>
-              <span className="font-bold text-emerald-600 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                No daily password required
+        <div className="bg-white rounded-3xl p-4 shadow-sm border border-purple-100 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Phone className="w-4 h-4 text-[#F97316]" />
+                <h2 className="font-black text-slate-800 text-sm">1-Time SMS OTP Sign-In</h2>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full bg-purple-100 text-[#4C1D95] text-[10px] font-black uppercase">
+                Verified Session
               </span>
+            </div>
+
+            <div className="mt-3 space-y-2 text-xs">
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span className="text-slate-500">Technician Name:</span>
+                <span className="font-bold text-slate-800">{techSession?.full_name || currentUser?.full_name || 'Logged In'}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span className="text-slate-500">Mobile Phone:</span>
+                <span className="font-bold text-slate-800">{techSession?.phone || currentUser?.phone || '—'}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span className="text-slate-500">Device Support:</span>
+                <span className="font-bold text-emerald-600 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Android &bull; iPhone &bull; iPad
+                </span>
+              </div>
             </div>
           </div>
 
           <div className="mt-4 flex gap-2">
-            {!techSession ? (
+            {!techSession && !currentUser ? (
               <button
                 type="button"
                 onClick={() => setShowLoginModal(true)}
-                className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition"
+                className="w-full py-3 px-4 rounded-full bg-gradient-to-r from-[#4C1D95] to-[#6D28D9] hover:from-[#3B0764] hover:to-[#5B21B6] text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md transition cursor-pointer"
               >
                 <Phone className="w-4 h-4" />
-                Sign In with Mobile Number
+                Sign In with Mobile Number + OTP
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleLogout}
-                className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition"
+                className="w-full py-3 px-4 rounded-full bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md transition cursor-pointer"
               >
-                <LogOut className="w-3.5 h-3.5 text-slate-500" />
+                <LogOut className="w-3.5 h-3.5 text-white" />
                 Switch Account / Sign Out
               </button>
             )}

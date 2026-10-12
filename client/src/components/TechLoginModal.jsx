@@ -134,12 +134,19 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
         )}
 
         {/* Header Banner */}
-        <div className="p-6 bg-gradient-to-br from-red-600 via-rose-600 to-slate-900 text-white text-center relative">
-          <div className="w-14 h-14 mx-auto rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center shadow-lg mb-2.5">
-            <Smartphone className="w-7 h-7 text-white" />
+        <div className="p-6 bg-gradient-to-br from-[#5B21B6] via-[#4C1D95] to-[#2E1065] text-white text-center relative overflow-hidden">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-white p-1 border-2 border-orange-400 flex items-center justify-center shadow-lg mb-2.5 overflow-hidden">
+            <img
+              src="/pest-tech-man.jpg"
+              alt="Pest Control Technician"
+              className="w-full h-full object-cover rounded-xl"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
           </div>
           <h2 className="text-lg font-black tracking-tight">Technician 1-Time SMS Login</h2>
-          <p className="text-xs text-red-100 font-semibold mt-0.5">
+          <p className="text-xs text-purple-200 font-semibold mt-0.5">
             Enter your mobile phone &amp; 6-digit SMS OTP code
           </p>
         </div>
@@ -157,7 +164,7 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
             <form onSubmit={handleRequestOtp} className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                  <Phone className="w-3.5 h-3.5 text-red-600" />
+                  <Phone className="w-3.5 h-3.5 text-orange-500" />
                   <span>Technician Mobile Number *</span>
                 </label>
                 <input
@@ -168,14 +175,14 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
                   placeholder="07XXXXXXXX or 94XXXXXXXX"
                   autoFocus
                   required
-                  className="w-full px-4 py-3.5 bg-slate-50 rounded-2xl border-2 border-slate-200 focus:bg-white focus:border-red-500 focus:outline-hidden font-mono font-black text-sm tracking-wider text-slate-900"
+                  className="w-full px-4 py-3.5 bg-slate-50 rounded-2xl border-2 border-slate-200 focus:bg-white focus:border-[#6D28D9] focus:outline-hidden font-mono font-black text-sm tracking-wider text-slate-900"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-md shadow-red-200 disabled:opacity-50 transition flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3.5 bg-gradient-to-r from-[#4C1D95] to-[#6D28D9] hover:from-[#3B0764] hover:to-[#5B21B6] text-white font-black text-xs uppercase tracking-wider rounded-full shadow-md shadow-purple-200 disabled:opacity-50 transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 {loading ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />

@@ -366,14 +366,14 @@ export default function JobsView({
       </div>
 
       {/* Quick Schedule Tab Bar: Today Job List | Tomorrow Job List | All Jobs */}
-      <div className="grid grid-cols-3 p-1.5 bg-white rounded-2xl border border-slate-200 shadow-2xs gap-1.5 sm:gap-2">
+      <div className="grid grid-cols-3 p-1.5 bg-white rounded-2xl border border-purple-100 shadow-2xs gap-1.5 sm:gap-2">
         <button
           type="button"
           onClick={() => setDateFilter(colomboToday)}
           className={`py-2.5 px-2 sm:px-3 rounded-xl font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
             dateFilter === colomboToday
-              ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-sm'
-              : 'bg-slate-50 text-slate-700 hover:bg-red-50 hover:text-red-700'
+              ? 'bg-gradient-to-r from-[#F97316] to-[#FF8A00] text-white shadow-sm'
+              : 'bg-purple-50/60 text-slate-700 hover:bg-orange-50 hover:text-orange-700'
           }`}
         >
           <CalendarIcon className="w-3.5 h-3.5 shrink-0" />
@@ -385,8 +385,8 @@ export default function JobsView({
           onClick={() => setDateFilter(colomboTomorrow)}
           className={`py-2.5 px-2 sm:px-3 rounded-xl font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
             dateFilter === colomboTomorrow
-              ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm'
-              : 'bg-slate-50 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700'
+              ? 'bg-gradient-to-r from-[#5B21B6] to-[#6D28D9] text-white shadow-sm'
+              : 'bg-purple-50/60 text-slate-700 hover:bg-purple-100 hover:text-purple-800'
           }`}
         >
           <Clock className="w-3.5 h-3.5 shrink-0" />
@@ -398,8 +398,8 @@ export default function JobsView({
           onClick={() => setDateFilter('')}
           className={`py-2.5 px-2 sm:px-3 rounded-xl font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
             dateFilter === ''
-              ? 'bg-slate-900 text-white shadow-sm'
-              : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+              ? 'bg-[#3B0764] text-white shadow-sm'
+              : 'bg-purple-50/60 text-slate-700 hover:bg-slate-100'
           }`}
         >
           <Briefcase className="w-3.5 h-3.5 shrink-0" />
@@ -470,8 +470,8 @@ export default function JobsView({
               ))}
             </select>
           ) : (
-            <div className="w-full bg-red-50/70 px-3 py-2 rounded-xl border border-red-200/80 text-xs font-bold text-red-700 flex items-center gap-1.5 truncate shadow-2xs">
-              <User className="w-3.5 h-3.5 shrink-0 text-red-600" />
+            <div className="w-full bg-purple-50/70 px-3 py-2 rounded-xl border border-purple-200/80 text-xs font-bold text-[#4C1D95] flex items-center gap-1.5 truncate shadow-2xs">
+              <User className="w-3.5 h-3.5 shrink-0 text-[#6D28D9]" />
               <span className="truncate">My Assigned Jobs</span>
             </div>
           )}
@@ -533,8 +533,8 @@ export default function JobsView({
         )}
       </div>
 
-      {/* Responsive Mobile Job Cards (for Phones / Small Screens) */}
-      <div className="md:hidden space-y-3">
+      {/* Responsive Mobile & iPad Job Cards (for Android, iPhone & iPad) */}
+      <div className={`${isMobileView ? 'block' : 'lg:hidden'}`}>
         {jobs.length === 0 ? (
           <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center">
             <Briefcase className="w-10 h-10 text-slate-300 mx-auto mb-2" />
@@ -542,105 +542,109 @@ export default function JobsView({
             <p className="text-xs text-slate-400 mt-0.5">Try switching tabs or adjusting your filters.</p>
           </div>
         ) : (
-          jobs.map(job => {
-            const isLockedTomorrow = isTechnicianMode && isJobScheduledAfterToday(job);
-            return (
-              <div
-                key={job.id}
-                onClick={() => isLockedTomorrow ? setTomorrowNoticeJob(job) : loadJobDetails(job.id)}
-                className={`bg-white p-4 rounded-2xl border shadow-2xs space-y-3 active:scale-[0.99] transition cursor-pointer ${
-                  isLockedTomorrow ? 'border-indigo-200/90 bg-indigo-50/15' : 'border-slate-200'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] font-mono font-black bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
-                        {job.job_code}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {jobs.map(job => {
+              const isLockedTomorrow = isTechnicianMode && isJobScheduledAfterToday(job);
+              return (
+                <div
+                  key={job.id}
+                  onClick={() => isLockedTomorrow ? setTomorrowNoticeJob(job) : loadJobDetails(job.id)}
+                  className={`bg-white p-4 rounded-2xl border shadow-2xs space-y-3 active:scale-[0.99] transition cursor-pointer flex flex-col justify-between ${
+                    isLockedTomorrow ? 'border-purple-200/90 bg-purple-50/20' : 'border-slate-200'
+                  }`}
+                >
+                  <div className="space-y-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-mono font-black bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
+                            {job.job_code}
+                          </span>
+                          <span
+                            style={{ backgroundColor: `${job.treatment_color || '#6D28D9'}20`, color: job.treatment_color || '#6D28D9' }}
+                            className="px-2 py-0.5 rounded text-[10px] font-black"
+                          >
+                            {job.treatment_code}
+                          </span>
+                          {isLockedTomorrow && (
+                            <span className="px-2 py-0.5 bg-[#5B21B6] text-white rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                              <Lock className="w-2.5 h-2.5" /> Tomorrow Only
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="text-sm font-black text-slate-900 mt-1.5 leading-snug">{job.customer_name}</h3>
+                        <div className="text-[11px] font-bold text-slate-500 mt-0.5 flex items-center gap-1.5">
+                          <CalendarIcon className="w-3 h-3 text-[#6D28D9]" />
+                          <span>{getJobEffectiveDate(job)}</span>
+                          <span>&bull;</span>
+                          <span>{job.scheduled_time || '09:00'}</span>
+                        </div>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-black shrink-0 ${
+                        job.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' :
+                        job.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-800' :
+                        job.status === 'POSTPONED' ? 'bg-purple-100 text-purple-800' :
+                        'bg-slate-100 text-slate-700'
+                      }`}>
+                        {job.status}
                       </span>
-                      <span
-                        style={{ backgroundColor: `${job.treatment_color || '#10B981'}20`, color: job.treatment_color || '#10B981' }}
-                        className="px-2 py-0.5 rounded text-[10px] font-black"
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">
+                      <MapPin className="w-3.5 h-3.5 text-[#F97316] shrink-0" />
+                      <span className="truncate font-medium">{job.location_name || job.location_address || 'Main Location'}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
+                    <div className="text-[11px] text-slate-500 font-semibold flex items-center gap-1">
+                      <User className="w-3.5 h-3.5 text-[#6D28D9]" />
+                      <span className="truncate">{job.technician_name || 'Assigned'}</span>
+                    </div>
+
+                    {isLockedTomorrow ? (
+                      <button
+                        type="button"
+                        onClick={() => setTomorrowNoticeJob(job)}
+                        className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-[#4C1D95] border border-purple-200 font-black rounded-full text-[11px] inline-flex items-center gap-1.5 cursor-pointer"
                       >
-                        {job.treatment_code}
-                      </span>
-                      {isLockedTomorrow && (
-                        <span className="px-2 py-0.5 bg-indigo-600 text-white rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                          <Lock className="w-2.5 h-2.5" /> Tomorrow Only
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="text-sm font-black text-slate-900 mt-1.5 leading-snug">{job.customer_name}</h3>
-                    <div className="text-[11px] font-bold text-slate-500 mt-0.5 flex items-center gap-1.5">
-                      <CalendarIcon className="w-3 h-3 text-indigo-500" />
-                      <span>{getJobEffectiveDate(job)}</span>
-                      <span>&bull;</span>
-                      <span>{job.scheduled_time || '09:00'}</span>
-                    </div>
-                  </div>
-                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-black shrink-0 ${
-                    job.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' :
-                    job.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-800' :
-                    job.status === 'POSTPONED' ? 'bg-indigo-100 text-indigo-800' :
-                    'bg-slate-100 text-slate-700'
-                  }`}>
-                    {job.status}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">
-                  <MapPin className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                  <span className="truncate font-medium">{job.location_name || job.location_address || 'Main Location'}</span>
-                </div>
-
-                <div className="flex items-center justify-between gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
-                  <div className="text-[11px] text-slate-500 font-semibold flex items-center gap-1">
-                    <User className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="truncate">{job.technician_name || 'Assigned'}</span>
-                  </div>
-
-                  {isLockedTomorrow ? (
-                    <button
-                      type="button"
-                      onClick={() => setTomorrowNoticeJob(job)}
-                      className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-black rounded-xl text-[11px] inline-flex items-center gap-1.5"
-                    >
-                      <Lock className="w-3 h-3 text-indigo-600" />
-                      <span>Work Tomorrow Only</span>
-                    </button>
-                  ) : (
-                    job.status !== 'COMPLETED' && job.status !== 'CANCELLED' && (
-                      job.status === 'IN_PROGRESS' ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedJob(job);
-                            setShowCompleteModal(true);
-                          }}
-                          className="px-3 py-1.5 bg-emerald-600 text-white font-black rounded-xl text-[11px] inline-flex items-center gap-1 shadow-xs"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Complete
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleStartJob(job)}
-                          className="px-3 py-1.5 bg-red-600 text-white font-black rounded-xl text-[11px] inline-flex items-center gap-1 shadow-xs"
-                        >
-                          <PlayCircle className="w-3.5 h-3.5" /> Start
-                        </button>
+                        <Lock className="w-3 h-3 text-[#6D28D9]" />
+                        <span>Work Tomorrow Only</span>
+                      </button>
+                    ) : (
+                      job.status !== 'COMPLETED' && job.status !== 'CANCELLED' && (
+                        job.status === 'IN_PROGRESS' ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedJob(job);
+                              setShowCompleteModal(true);
+                            }}
+                            className="px-3.5 py-1.5 bg-emerald-600 text-white font-black rounded-full text-[11px] inline-flex items-center gap-1 shadow-xs cursor-pointer"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Complete
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleStartJob(job)}
+                            className="px-3.5 py-1.5 bg-gradient-to-r from-[#F97316] to-[#EA580C] text-white font-black rounded-full text-[11px] inline-flex items-center gap-1 shadow-xs cursor-pointer"
+                          >
+                            <PlayCircle className="w-3.5 h-3.5" /> Start
+                          </button>
+                        )
                       )
-                    )
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })
+              );
+            })}
+          </div>
         )}
       </div>
 
       {/* Desktop Jobs Table */}
-      <div className="hidden md:block bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+      <div className={`${isMobileView ? 'hidden' : 'hidden lg:block'} bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden`}>
         <div className="divide-y divide-slate-100 overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
