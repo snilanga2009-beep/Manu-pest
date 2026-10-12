@@ -102,7 +102,14 @@ export default function App() {
       fetch('/api/auth/me', {
         headers: { Authorization: `Bearer ${token}` }
       })
-        .then(r => r.json())
+        .then(async r => {
+          const txt = await r.text();
+          try {
+            return JSON.parse(txt);
+          } catch (e) {
+            return { success: false };
+          }
+        })
         .then(data => {
           if (data.success && data.user) {
             setCurrentUser(data.user);
@@ -217,7 +224,8 @@ export default function App() {
           }
         })
       });
-      const data = await res.json();
+      const txt = await res.text();
+      const data = JSON.parse(txt);
       if (data.success && data.user) {
         localStorage.setItem('auth_token', data.token);
         localStorage.setItem('auth_user', JSON.stringify(data.user));
@@ -303,9 +311,9 @@ export default function App() {
   // Verify token screen while verifying existing token
   if (isAuthChecking && (localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token'))) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
-        <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-slate-400 text-xs mt-3 font-semibold tracking-wide">Loading workspace session...</p>
+      <div className="min-h-screen bg-gradient-to-br from-[#5B21B6] via-[#4C1D95] to-[#2E1065] flex flex-col items-center justify-center p-4">
+        <div className="w-10 h-10 border-4 border-orange-400 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-purple-100 text-xs mt-3 font-bold tracking-wide">Loading workspace session...</p>
       </div>
     );
   }
@@ -340,7 +348,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
+    <div className="min-h-screen bg-[#F8F6FC] text-slate-900 flex flex-col">
 
       {/* Top Navigation - ONLY in Desktop Admin View */}
       {!isMobileView && (

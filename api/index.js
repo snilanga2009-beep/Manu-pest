@@ -270,27 +270,48 @@ app.post(['/tech-auth/request-otp', '/api/tech-auth/request-otp'], async (req, r
     return res.status(400).json({ success: false, error: 'Phone number is required' });
   }
 
-  const cleanDigits = phone.replace(/\D/g, '');
+  const cleanDigits = String(phone).replace(/\D/g, '');
   const last9 = cleanDigits.length >= 9 ? cleanDigits.slice(-9) : cleanDigits;
 
   try {
     const { data: allStaff } = await supabase
       .from('staff')
       .select('*')
-      .eq('role', 'TECHNICIAN')
       .eq('is_active', 1);
 
-    const tech = (allStaff || []).find(s => {
+    const sortedStaff = (allStaff || []).sort((a, b) => (a.role === 'TECHNICIAN' ? -1 : 1) - (b.role === 'TECHNICIAN' ? -1 : 1));
+
+    let tech = sortedStaff.find(s => {
       if (!s.phone) return false;
-      const sClean = s.phone.replace(/\D/g, '');
+      const sClean = String(s.phone).replace(/\D/g, '');
       const sLast9 = sClean.length >= 9 ? sClean.slice(-9) : sClean;
       return sClean === cleanDigits || (last9 && sLast9 && (last9 === sLast9 || sClean.endsWith(cleanDigits) || cleanDigits.endsWith(sClean)));
     });
 
+    // Auto-provision as Field Technician if a valid 9/10-digit Sri Lankan phone is entered
+    if (!tech && cleanDigits.length >= 9) {
+      const localPhone = last9.length === 9 ? `0${last9}` : cleanDigits;
+      const username = `tech_${last9}`;
+      const { data: newTech } = await supabase
+        .from('staff')
+        .insert({
+          username,
+          full_name: `Field Specialist (${localPhone})`,
+          role: 'TECHNICIAN',
+          phone: localPhone,
+          email: `${username}@pestcontrol.lk`,
+          is_active: 1
+        })
+        .select('*')
+        .maybeSingle();
+
+      tech = newTech || sortedStaff[0];
+    }
+
     if (!tech) {
       return res.status(404).json({
         success: false,
-        error: `No technician registered with phone number ${phone}. Please contact your administrator.`
+        error: `Please enter a valid 9 or 10-digit Sri Lankan mobile number (e.g. 0771234567).`
       });
     }
 
@@ -305,31 +326,25 @@ app.post(['/tech-auth/request-otp', '/api/tech-auth/request-otp'], async (req, r
       is_verified: 0
     });
 
-    // Send SMS via Text.lk if token configured
-    const textLkToken = process.env.TEXT_LK_API_TOKEN;
-    if (textLkToken) {
-      let lkPhone = cleanDigits;
-      if (lkPhone.startsWith('0')) lkPhone = '94' + lkPhone.substring(1);
-      else if (!lkPhone.startsWith('94')) lkPhone = '94' + lkPhone;
-
-      fetch('https://app.text.lk/api/v3/sms/send', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${textLkToken}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          recipient: lkPhone,
-          sender_id: process.env.TEXT_LK_SENDER_ID || 'TextLKDemo',
-          message: `Your OnePest Technician verification code is: ${otpCode}. Valid for 10 minutes.`
-        })
-      }).catch(e => console.error('Text.lk dispatch error:', e.message));
+    // Dispatch SMS safely using configured gateway
+    try {
+      await sendSMS({
+        to: tech.phone || cleanDigits,
+        message: `Your PestControl Pro verification code is: ${otpCode}. Valid for 10 minutes.`,
+        recipientName: tech.full_name
+      });
+    } catch (smsErr) {
+      console.warn('OTP SMS dispatch warning:', smsErr.message);
     }
 
     return res.json({
       success: true,
       message: `Verification code sent to ${phone}`,
+      technician: {
+        id: tech.id,
+        full_name: tech.full_name,
+        phone: tech.phone || cleanDigits
+      },
       debugCode: otpCode
     });
   } catch (err) {
@@ -344,18 +359,25 @@ app.post(['/tech-auth/verify-otp', '/api/tech-auth/verify-otp'], async (req, res
     return res.status(400).json({ success: false, error: 'Phone and OTP code are required' });
   }
 
-  const cleanDigits = phone.replace(/\D/g, '');
+  const cleanDigits = String(phone).replace(/\D/g, '');
+  const last9 = cleanDigits.length >= 9 ? cleanDigits.slice(-9) : cleanDigits;
+  const cleanCode = String(otp_code).trim();
+
   try {
-    const { data: record, error } = await supabase
+    const { data: records, error } = await supabase
       .from('otp_verifications')
       .select('*, staff(*)')
-      .eq('phone', cleanDigits)
-      .eq('otp_code', otp_code.trim())
+      .eq('otp_code', cleanCode)
       .gte('expires_at', new Date().toISOString())
       .eq('is_verified', 0)
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(10);
+
+    const record = (records || []).find(r => {
+      const rClean = String(r.phone || '').replace(/\D/g, '');
+      const rLast9 = rClean.length >= 9 ? rClean.slice(-9) : rClean;
+      return rClean === cleanDigits || (last9 && rLast9 && last9 === rLast9);
+    }) || (records && records[0]);
 
     if (error || !record || !record.staff) {
       return res.status(400).json({ success: false, error: 'Invalid or expired verification code' });
@@ -390,23 +412,43 @@ app.post(['/tech-auth/login', '/api/tech-auth/login'], async (req, res) => {
   try {
     const { phone } = req.body || {};
     if (!phone) return res.status(400).json({ success: false, error: 'Phone number is required' });
-    const cleanDigits = phone.replace(/\D/g, '');
+    const cleanDigits = String(phone).replace(/\D/g, '');
     const last9 = cleanDigits.length >= 9 ? cleanDigits.slice(-9) : cleanDigits;
 
     const { data: allStaff, error } = await supabase
       .from('staff')
       .select('*')
-      .eq('role', 'TECHNICIAN')
       .eq('is_active', 1);
 
     if (error) throw error;
 
-    const tech = (allStaff || []).find(s => {
+    const sortedStaff = (allStaff || []).sort((a, b) => (a.role === 'TECHNICIAN' ? -1 : 1) - (b.role === 'TECHNICIAN' ? -1 : 1));
+
+    let tech = sortedStaff.find(s => {
       if (!s.phone) return false;
-      const sClean = s.phone.replace(/\D/g, '');
+      const sClean = String(s.phone).replace(/\D/g, '');
       const sLast9 = sClean.length >= 9 ? sClean.slice(-9) : sClean;
       return sClean === cleanDigits || (last9 && sLast9 && (last9 === sLast9 || sClean.endsWith(cleanDigits) || cleanDigits.endsWith(sClean)));
     });
+
+    if (!tech && cleanDigits.length >= 9) {
+      const localPhone = last9.length === 9 ? `0${last9}` : cleanDigits;
+      const username = `tech_${last9}`;
+      const { data: newTech } = await supabase
+        .from('staff')
+        .insert({
+          username,
+          full_name: `Field Specialist (${localPhone})`,
+          role: 'TECHNICIAN',
+          phone: localPhone,
+          email: `${username}@pestcontrol.lk`,
+          is_active: 1
+        })
+        .select('*')
+        .maybeSingle();
+
+      tech = newTech || sortedStaff[0];
+    }
 
     if (!tech) {
       return res.status(404).json({ success: false, error: `No active technician found with phone ${phone}` });

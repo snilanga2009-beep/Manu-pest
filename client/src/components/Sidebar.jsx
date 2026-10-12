@@ -38,9 +38,9 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       id: 'dashboard',
       label: 'Dashboard',
       icon: LayoutDashboard,
-      color: 'red',
-      activeGradient: 'from-red-600 to-rose-600 shadow-red-200',
-      iconBg: 'bg-red-50 text-red-600',
+      color: 'purple',
+      activeGradient: 'from-[#4C1D95] via-[#5B21B6] to-[#6D28D9] shadow-purple-300',
+      iconBg: 'bg-purple-50 text-[#6D28D9]',
       description: 'Overview & KPIs'
     },
     {
@@ -48,10 +48,10 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       label: 'Jobs & Operations',
       icon: Briefcase,
       badge: counters.today_jobs,
-      badgeColor: 'bg-red-500 text-white',
-      color: 'red',
-      activeGradient: 'from-red-600 to-rose-600 shadow-red-200',
-      iconBg: 'bg-red-50 text-red-600',
+      badgeColor: 'bg-[#F97316] text-white',
+      color: 'orange',
+      activeGradient: 'from-[#F97316] to-[#EA580C] shadow-orange-200',
+      iconBg: 'bg-orange-50 text-orange-600',
       description: 'Daily schedules'
     },
     {
@@ -59,37 +59,37 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       label: 'Auto Reminders',
       icon: Bell,
       badge: counters.unconfirmed_jobs ? `${counters.unconfirmed_jobs} alert` : undefined,
-      badgeColor: 'bg-purple-500 text-white',
+      badgeColor: 'bg-purple-600 text-white',
       color: 'purple',
-      activeGradient: 'from-purple-600 to-indigo-600 shadow-purple-200',
-      iconBg: 'bg-purple-50 text-purple-600',
+      activeGradient: 'from-[#4C1D95] via-[#5B21B6] to-[#6D28D9] shadow-purple-200',
+      iconBg: 'bg-purple-50 text-[#6D28D9]',
       description: 'SMS & WhatsApp'
     },
     {
       id: 'calendar',
       label: 'Schedule Calendar',
       icon: Calendar,
-      color: 'amber',
-      activeGradient: 'from-amber-500 to-orange-600 shadow-amber-200',
-      iconBg: 'bg-amber-50 text-amber-600',
+      color: 'orange',
+      activeGradient: 'from-[#F97316] to-[#FF8A00] shadow-orange-200',
+      iconBg: 'bg-orange-50 text-orange-600',
       description: 'Master timeline'
     },
     {
       id: 'customers',
       label: 'Customers & CRM',
       icon: Users,
-      color: 'emerald',
-      activeGradient: 'from-emerald-600 to-teal-600 shadow-emerald-200',
-      iconBg: 'bg-emerald-50 text-emerald-600',
+      color: 'purple',
+      activeGradient: 'from-[#4C1D95] via-[#5B21B6] to-[#6D28D9] shadow-purple-200',
+      iconBg: 'bg-purple-50 text-[#6D28D9]',
       description: 'Clients & Sites'
     },
     {
       id: 'reports',
       label: 'Reports & Export',
       icon: BarChart3,
-      color: 'rose',
-      activeGradient: 'from-rose-500 to-pink-600 shadow-rose-200',
-      iconBg: 'bg-rose-50 text-rose-600',
+      color: 'orange',
+      activeGradient: 'from-[#F97316] to-[#EA580C] shadow-orange-200',
+      iconBg: 'bg-orange-50 text-orange-600',
       description: 'Analytics & PDF'
     },
     {
@@ -97,10 +97,10 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       label: 'Database Backup',
       icon: Database,
       badge: 'Monthly',
-      badgeColor: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
-      color: 'teal',
-      activeGradient: 'from-teal-600 to-emerald-600 shadow-teal-200',
-      iconBg: 'bg-teal-50 text-teal-600',
+      badgeColor: 'bg-purple-100 text-purple-800 border border-purple-200',
+      color: 'purple',
+      activeGradient: 'from-[#4C1D95] to-[#6D28D9] shadow-purple-200',
+      iconBg: 'bg-purple-50 text-[#6D28D9]',
       description: 'Monthly auto-archives'
     },
     {
@@ -108,10 +108,10 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       label: 'Firebase Push Alerts',
       icon: BellRing,
       badge: 'FCM / Push',
-      badgeColor: 'bg-red-100 text-red-700 border border-red-200',
-      color: 'red',
-      activeGradient: 'from-red-600 to-rose-600 shadow-red-200',
-      iconBg: 'bg-red-50 text-red-600',
+      badgeColor: 'bg-orange-100 text-orange-700 border border-orange-200',
+      color: 'orange',
+      activeGradient: 'from-[#F97316] to-[#EA580C] shadow-orange-200',
+      iconBg: 'bg-orange-50 text-orange-600',
       description: 'Firebase & Web Push'
     },
     {
@@ -119,22 +119,52 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       label: 'Settings & Gateway',
       icon: Settings,
       badge: 'SMS + Users',
-      badgeColor: 'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200',
-      color: 'fuchsia',
-      activeGradient: 'from-fuchsia-600 to-purple-600 shadow-fuchsia-200',
-      iconBg: 'bg-fuchsia-50 text-fuchsia-600',
+      badgeColor: 'bg-purple-100 text-purple-800 border border-purple-200',
+      color: 'purple',
+      activeGradient: 'from-[#4C1D95] via-[#5B21B6] to-[#6D28D9] shadow-purple-200',
+      iconBg: 'bg-purple-50 text-[#6D28D9]',
       description: 'Gateways, Staff & Setup'
     },
   ];
 
   return (
-    <aside className="w-68 bg-white border-r border-slate-200 flex flex-col shrink-0 min-h-[calc(100vh-4rem)] select-none">
-      
-      {/* Quick Add Customer Action */}
-      <div className="px-3.5 pt-3 pb-1">
+    <aside className="w-68 bg-white border-r border-purple-100 flex flex-col shrink-0 min-h-[calc(100vh-4rem)] select-none shadow-xs">
+
+      {/* Top Purple & Orange Curved Wave Hero Mini-Card with Pest Control Man */}
+      <div className="mx-3.5 mt-3.5 p-3.5 rounded-3xl bg-gradient-to-br from-[#5B21B6] via-[#4C1D95] to-[#2E1065] text-white relative overflow-hidden shadow-lg">
+        <div className="absolute top-0 right-0 w-28 h-16 pointer-events-none opacity-90">
+          <svg viewBox="0 0 200 100" preserveAspectRatio="none" className="w-full h-full">
+            <path d="M30,0 L200,0 L200,90 C130,85 85,25 30,0 Z" fill="#FF8A00" />
+          </svg>
+        </div>
+        <div className="relative z-10 flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-white p-0.5 border-2 border-orange-400 shadow-md shrink-0 overflow-hidden">
+            <img
+              src="/pest-tech-man.jpg"
+              alt="Pest Control"
+              className="w-full h-full object-cover rounded-xl"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          </div>
+          <div className="min-w-0">
+            <span className="inline-block text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-orange-500 text-white mb-0.5">
+              PEST CONTROL
+            </span>
+            <div className="text-xs font-black text-white truncate">
+              {branding.name || 'Operations Control'}
+            </div>
+            <div className="text-[10px] text-purple-200 font-semibold truncate">
+              Master Command Center
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Add Customer Pill Button inside Hero Card */}
         <button
           onClick={onOpenAddCustomer}
-          className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-700 hover:to-rose-800 text-white text-xs font-black shadow-md shadow-red-200 transition transform active:scale-95 group cursor-pointer"
+          className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-full bg-gradient-to-r from-[#F97316] to-[#FF8A00] hover:from-[#EA580C] hover:to-[#F97316] text-white text-xs font-black shadow-md shadow-orange-950/30 transition transform active:scale-95 group cursor-pointer"
         >
           <UserPlus className="w-4 h-4 transition-transform group-hover:scale-110" />
           <span>+ Add New Customer</span>
@@ -142,10 +172,10 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       </div>
 
       {/* Navigation List */}
-      <div className="p-3.5 flex-1 space-y-1.5 pt-1">
-        <div className="px-3 pt-2 pb-1.5 flex items-center justify-between text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
-          <span className="truncate max-w-[140px] text-slate-600 font-bold">{branding.name || 'Operations'}</span>
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-mono">v2026.1</span>
+      <div className="p-3.5 flex-1 space-y-1.5 pt-2">
+        <div className="px-3 pt-1 pb-1 flex items-center justify-between text-[10px] font-black text-purple-900/60 uppercase tracking-wider">
+          <span className="truncate max-w-[140px] text-[#3B0764] font-black">Control Menu</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-[#6D28D9] font-mono font-bold border border-purple-100">v2026</span>
         </div>
 
         {navItems.map(item => {
@@ -156,10 +186,10 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-2xl text-xs font-semibold transition-all duration-200 group text-left ${
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-2xl text-xs font-semibold transition-all duration-200 group text-left cursor-pointer ${
                 isActive
                   ? `bg-gradient-to-r ${item.activeGradient} text-white shadow-md font-bold scale-[1.01]`
-                  : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                  : 'text-slate-700 hover:bg-purple-50/70 hover:text-[#3B0764]'
               }`}
             >
               <div className="flex items-center gap-3">
@@ -173,18 +203,18 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
                   <Icon className="w-4 h-4" />
                 </div>
                 <div className="min-w-0">
-                  <div className="truncate leading-tight text-xs font-bold">{item.label}</div>
-                  <div className={`text-[10px] truncate ${isActive ? 'text-white/80' : 'text-slate-400'}`}>
+                  <div className="truncate leading-tight text-xs font-black">{item.label}</div>
+                  <div className={`text-[10px] truncate ${isActive ? 'text-white/85' : 'text-slate-400'}`}>
                     {item.description}
                   </div>
                 </div>
               </div>
 
               {item.badge !== undefined && (
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-black shrink-0 ${
                   isActive
-                    ? 'bg-white/20 text-white'
-                    : item.badgeColor || 'bg-slate-200 text-slate-700'
+                    ? 'bg-white/25 text-white'
+                    : item.badgeColor || 'bg-purple-100 text-purple-800'
                 }`}>
                   {item.badge}
                 </span>
@@ -198,22 +228,22 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       <div className="px-3.5 pb-2">
         <div
           onClick={() => onTabChange('settings')}
-          className="p-3 rounded-2xl bg-gradient-to-br from-violet-500/10 via-purple-500/5 to-indigo-500/10 border border-violet-200/70 hover:border-violet-300 transition cursor-pointer shadow-2xs group"
+          className="p-3 rounded-2xl bg-gradient-to-br from-purple-50 via-white to-orange-50/60 border border-purple-200 hover:border-orange-400 transition cursor-pointer shadow-2xs group"
         >
-          <div className="flex items-center justify-between text-[11px] font-bold text-violet-900 mb-1.5">
+          <div className="flex items-center justify-between text-[11px] font-black text-[#3B0764] mb-1.5">
             <span className="flex items-center gap-1.5">
-              <Smartphone className="w-3.5 h-3.5 text-violet-600" /> Sri Lanka SMS Gateway
+              <Smartphone className="w-3.5 h-3.5 text-orange-500" /> Sri Lanka SMS Gateway
             </span>
-            <span className="flex items-center gap-1 text-[10px] font-extrabold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-md">
+            <span className="flex items-center gap-1 text-[10px] font-extrabold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-md">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
               {smsGatewayInfo.is_simulation ? 'Simulation' : 'Live'}
             </span>
           </div>
           <div className="flex items-center justify-between text-[11px] text-slate-600">
-            <span className="font-mono text-violet-700 font-bold">
+            <span className="font-mono text-[#6D28D9] font-black">
               {smsGatewayInfo.provider === 'TEXT_LK' ? 'Text.lk (REST v3)' : smsGatewayInfo.provider}
             </span>
-            <span className="text-[10px] text-violet-500 group-hover:translate-x-0.5 transition font-semibold flex items-center">
+            <span className="text-[10px] text-orange-600 group-hover:translate-x-0.5 transition font-black flex items-center">
               Configure <ChevronRight className="w-3 h-3 ml-0.5" />
             </span>
           </div>
@@ -221,26 +251,26 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       </div>
 
       {/* Live Operations Status Panel */}
-      <div className="p-3.5 border-t border-slate-100 bg-slate-50/60 m-3 rounded-2xl space-y-2">
+      <div className="p-3.5 border border-purple-100 bg-purple-50/40 m-3 rounded-2xl space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+          <span className="text-[10px] font-black text-[#3B0764] uppercase tracking-wider">
             Live Daily Status
           </span>
-          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
         </div>
 
         <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
-          <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-200/60">
-            <div className="text-sm font-black text-amber-700">{counters.today_jobs || 0}</div>
-            <div className="text-[9px] font-bold text-amber-600 uppercase">Today</div>
+          <div className="p-2 rounded-xl bg-orange-500/10 border border-orange-200">
+            <div className="text-sm font-black text-orange-600">{counters.today_jobs || 0}</div>
+            <div className="text-[9px] font-black text-orange-700 uppercase">Today</div>
           </div>
-          <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-200/60">
-            <div className="text-sm font-black text-rose-700">{counters.overdue_jobs || 0}</div>
-            <div className="text-[9px] font-bold text-rose-600 uppercase">Overdue</div>
+          <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-200">
+            <div className="text-sm font-black text-[#6D28D9]">{counters.overdue_jobs || 0}</div>
+            <div className="text-[9px] font-black text-[#4C1D95] uppercase">Overdue</div>
           </div>
-          <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-200/60">
+          <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-200">
             <div className="text-sm font-black text-emerald-700">{counters.completed_jobs || 0}</div>
-            <div className="text-[9px] font-bold text-emerald-600 uppercase">Done</div>
+            <div className="text-[9px] font-black text-emerald-600 uppercase">Done</div>
           </div>
         </div>
       </div>
@@ -248,16 +278,16 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       {/* Current User Profile & Sign Out Action Card */}
       {currentUser && (
         <div className="px-3.5 pb-3">
-          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/90 shadow-2xs space-y-2">
+          <div className="p-3 rounded-2xl bg-gradient-to-r from-purple-50 to-orange-50/40 border border-purple-200 shadow-2xs space-y-2">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl flex items-center justify-center font-bold text-white shrink-0 shadow-xs bg-gradient-to-tr from-teal-700 to-emerald-600">
-                📊
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center font-bold text-white shrink-0 shadow-xs bg-gradient-to-tr from-[#4C1D95] to-[#F97316]">
+                🛡️
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-bold text-slate-900 truncate leading-tight">
+                <div className="text-xs font-black text-[#3B0764] truncate leading-tight">
                   {currentUser.full_name}
                 </div>
-                <div className="text-[9px] font-black uppercase tracking-wider text-teal-700">
+                <div className="text-[9px] font-black uppercase tracking-wider text-orange-600">
                   Operations Control Dashboard
                 </div>
               </div>
@@ -269,9 +299,9 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
                   type="button"
                   onClick={onLogout}
                   title="Sign Out to Login Page"
-                  className="w-full py-1.5 px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-bold border border-rose-200 transition cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+                  className="w-full py-2 px-3 rounded-full bg-gradient-to-r from-[#4C1D95] to-[#6D28D9] hover:from-[#3B0764] hover:to-[#5B21B6] text-white text-[10px] font-black uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
                 >
-                  <LogOut className="w-3 h-3 text-rose-600" />
+                  <LogOut className="w-3 h-3 text-orange-300" />
                   <span>Sign Out</span>
                 </button>
               )}
