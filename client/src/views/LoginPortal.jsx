@@ -5,6 +5,7 @@ import {
   Sparkles, RefreshCw, Send, Check, Shield, HelpCircle
 } from 'lucide-react';
 import { getSavedBranding, fetchServerBranding, PresetLogoIcon } from '../components/BrandingSettingsModal';
+import TechnicianLoginView from './TechnicianLoginView';
 
 export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) {
   const isTechOnly = technicianOnly ||
@@ -13,6 +14,10 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
       window.location.search.includes('tech') ||
       window.location.search.includes('job')
     ));
+
+  if (isTechOnly) {
+    return <TechnicianLoginView onLoginSuccess={onLoginSuccess} />;
+  }
 
   const [branding, setBranding] = useState(getSavedBranding());
   const [authMethod, setAuthMethod] = useState(() => isTechOnly ? 'sms_otp' : 'password');

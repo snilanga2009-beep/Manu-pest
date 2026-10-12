@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Smartphone, LogIn, Shield, Check, AlertCircle,
-  User, Sparkles, Send, X, RefreshCw, CheckCircle2, Lock
+  Smartphone, Check, AlertCircle, Send, X, RefreshCw, CheckCircle2, Lock, Phone
 } from 'lucide-react';
 import { saveTechSession } from '../services/offlineStorage';
 
@@ -29,7 +28,7 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
     if (e) e.preventDefault();
     const cleanDigits = phone.replace(/\D/g, '');
     if (cleanDigits.length < 9) {
-      setError('Please enter a valid 9 or 10-digit Sri Lankan phone number.');
+      setError('Please enter a valid 9 or 10-digit Sri Lankan mobile number.');
       return;
     }
 
@@ -52,7 +51,7 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
       setStep(2);
       setCountdown(60);
       setSmsFeedback({
-        message: data.message || `Code sent to ${phone}!`,
+        message: data.message || `1-Time OTP Code sent to ${phone}!`,
         debugCode: data.debugCode
       });
       if (data.debugCode) {
@@ -121,72 +120,34 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
     }
   };
 
-  // Quick Preset Bypass (for instant testing without SMS wait)
-  const handleDirectLogin = async (targetPhone) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/tech-auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: targetPhone })
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-
-      await saveTechSession({
-        token: data.token,
-        technician: data.technician,
-        phone: data.technician.phone
-      });
-      localStorage.setItem('auth_token', data.token);
-      localStorage.setItem('auth_user', JSON.stringify({ ...data.technician, role: 'TECHNICIAN' }));
-      localStorage.setItem('tech_preferred_id', String(data.technician.id));
-
-      if (onSuccess) onSuccess(data.technician, data.token);
-      else if (onLoginSuccess) onLoginSuccess(data.technician, data.token);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden flex flex-col relative">
-
         {onClose && (
           <button
             type="button"
             onClick={onClose}
-            className="absolute top-4 right-4 z-20 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition"
+            className="absolute top-4 right-4 z-20 w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         )}
 
         {/* Header Banner */}
-        <div className="p-6 bg-gradient-to-br from-slate-900 via-indigo-950 to-emerald-950 text-white text-center relative">
-          <div className="w-16 h-16 mx-auto rounded-3xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center font-black text-xl text-slate-950 shadow-lg shadow-emerald-950/50 mb-3">
-            PC
+        <div className="p-6 bg-gradient-to-br from-red-600 via-rose-600 to-slate-900 text-white text-center relative">
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center shadow-lg mb-2.5">
+            <Smartphone className="w-7 h-7 text-white" />
           </div>
-          <h2 className="text-lg font-black tracking-tight">Technician 1-Time SMS Sign-In</h2>
-          <p className="text-xs text-emerald-300 font-semibold mt-1">
-            PestControl Pro &bull; Field Operations App
+          <h2 className="text-lg font-black tracking-tight">Technician 1-Time SMS Login</h2>
+          <p className="text-xs text-red-100 font-semibold mt-0.5">
+            Enter your mobile phone &amp; 6-digit SMS OTP code
           </p>
         </div>
 
         {/* Form Body */}
-        <div className="p-6 space-y-4">
-          <div className="text-center text-xs text-slate-500">
-            {step === 1
-              ? 'Enter your mobile number to receive a 6-digit SMS verification code. Session never expires on this device.'
-              : `Enter the 6-digit verification code sent to ${phone}.`}
-          </div>
-
+        <div className="p-5 sm:p-6 space-y-4">
           {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center gap-2">
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center gap-2 font-bold">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
               <span>{error}</span>
             </div>
@@ -195,60 +156,33 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
           {step === 1 ? (
             <form onSubmit={handleRequestOtp} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                  <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Mobile Phone Number</span>
+                <label className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                  <Phone className="w-3.5 h-3.5 text-red-600" />
+                  <span>Technician Mobile Number *</span>
                 </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-xs font-bold text-slate-400">
-                    🇱🇰 +94
-                  </div>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="72 974 4526 or 077..."
-                    autoFocus
-                    required
-                    className="w-full pl-16 pr-3.5 py-3 bg-slate-50 rounded-xl border border-slate-200 focus:bg-white focus:border-emerald-500 focus:outline-hidden font-mono font-bold text-sm tracking-wider"
-                  />
-                </div>
-              </div>
-
-              {/* Quick Presets */}
-              <div className="space-y-1 pt-1">
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-                  Quick Select (Registered Techs):
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleDirectLogin('0729744526')}
-                    className="px-2.5 py-1 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg text-[11px] font-bold text-slate-700 border border-slate-200 transition"
-                  >
-                    ⚡ Nilanga (072 974 4526)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDirectLogin('0774567890')}
-                    className="px-2.5 py-1 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg text-[11px] font-bold text-slate-700 border border-slate-200 transition"
-                  >
-                    ⚡ Janadara (077 456 7890)
-                  </button>
-                </div>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="07XXXXXXXX or 94XXXXXXXX"
+                  autoFocus
+                  required
+                  className="w-full px-4 py-3.5 bg-slate-50 rounded-2xl border-2 border-slate-200 focus:bg-white focus:border-red-500 focus:outline-hidden font-mono font-black text-sm tracking-wider text-slate-900"
+                />
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-200 disabled:opacity-50 transition flex items-center justify-center gap-2 cursor-pointer mt-2"
+                className="w-full py-3.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-md shadow-red-200 disabled:opacity-50 transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 {loading ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    <span>SEND SMS VERIFICATION CODE</span>
+                    <span>Send 1-Time SMS OTP Code</span>
                   </>
                 )}
               </button>
@@ -256,19 +190,21 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
           ) : (
             <form onSubmit={handleVerifyOtp} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Enter 6-Digit SMS Code</span>
+                <label className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Enter 6-Digit SMS OTP Code</span>
                 </label>
                 <input
                   type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
                   maxLength={6}
                   value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="• • • • • •"
                   autoFocus
                   required
-                  className="w-full py-3 bg-slate-50 text-slate-900 text-center text-2xl tracking-[0.5em] rounded-xl border border-slate-200 focus:bg-white focus:border-emerald-500 focus:outline-hidden font-mono font-black"
+                  className="w-full py-3.5 bg-slate-50 text-slate-900 text-center text-2xl tracking-[0.5em] rounded-2xl border-2 border-emerald-300 focus:bg-white focus:border-emerald-500 focus:outline-hidden font-mono font-black"
                 />
               </div>
 
@@ -290,7 +226,7 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
                 <button
                   type="button"
                   onClick={() => setStep(1)}
-                  className="text-slate-500 hover:text-slate-800 underline"
+                  className="text-slate-500 hover:text-slate-800 font-bold underline cursor-pointer"
                 >
                   Change Number
                 </button>
@@ -298,35 +234,29 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
                   type="button"
                   disabled={countdown > 0 || loading}
                   onClick={handleRequestOtp}
-                  className="text-emerald-600 hover:underline disabled:text-slate-400 disabled:no-underline font-semibold"
+                  className="text-emerald-600 hover:underline disabled:text-slate-400 disabled:no-underline font-bold cursor-pointer"
                 >
-                  {countdown > 0 ? `Resend SMS in ${countdown}s` : 'Resend Code'}
+                  {countdown > 0 ? `Resend in ${countdown}s` : 'Resend Code'}
                 </button>
               </div>
 
               <button
                 type="submit"
                 disabled={loading || otpCode.length < 6}
-                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-200 disabled:opacity-50 transition flex items-center justify-center gap-2 cursor-pointer mt-2"
+                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-md shadow-emerald-200 disabled:opacity-50 transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 {loading ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />
                 ) : (
                   <>
                     <Check className="w-4 h-4" />
-                    <span>VERIFY & OPEN TECHNICIAN APP</span>
+                    <span>Verify &amp; Activate App</span>
                   </>
                 )}
               </button>
             </form>
           )}
-
-          <div className="text-[10px] text-slate-400 text-center flex items-center justify-center gap-1 pt-1">
-            <Shield className="w-3 h-3 text-emerald-500" />
-            <span>Permanent 1-Time Session. Stored securely on this device.</span>
-          </div>
         </div>
-
       </div>
     </div>
   );

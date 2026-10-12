@@ -39,7 +39,7 @@ export default function CalendarView({
   const lockedTechId = isTechnicianMode ? getEffectiveTechId() : '';
 
   const [viewMode, setViewMode] = useState('month'); // 'day', 'week', 'month', 'list'
-  const [currentDate, setCurrentDate] = useState(new Date('2026-09-01'));
+  const [currentDate, setCurrentDate] = useState(() => new Date());
   const [events, setEvents] = useState([]);
   const [eventsByDate, setEventsByDate] = useState({});
   const [loading, setLoading] = useState(true);

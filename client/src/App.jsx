@@ -34,10 +34,13 @@ export default function App() {
     : '';
 
   // Direct Technician Deep-Link or PWA standalone launcher
-  const isDirectTechRoute = pathname.startsWith('/tech') || pathname.startsWith('/technician') || urlParams.has('tech') || urlParams.has('job') || urlParams.get('view') === 'tech';
+  const isDirectTechRoute = pathname.startsWith('/tech') || pathname.startsWith('/technician') || urlParams.has('tech') || urlParams.has('job') || urlParams.get('view') === 'tech' || urlParams.get('app') === 'tech';
+
+  const isMobileUserAgent = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent || '');
 
   const isPhoneOrPwa = typeof window !== 'undefined' && (
     window.innerWidth < 768 ||
+    isMobileUserAgent ||
     window.matchMedia('(display-mode: standalone)').matches ||
     window.navigator.standalone === true ||
     isDirectTechRoute
@@ -361,25 +364,25 @@ export default function App() {
         !currentUser && !directJobIdFromUrl ? (
           <TechnicianLoginView onLoginSuccess={handleLoginSuccess} />
         ) : (
-          <div className="flex flex-col bg-slate-100 min-h-[100dvh] h-[100dvh] w-full max-w-full overflow-hidden select-none relative">
-            {/* Desktop Tester Switch Back Button */}
-            {typeof window !== 'undefined' && window.innerWidth >= 768 && (
-              <div className="absolute top-2 right-2 z-50">
+          <div className="flex flex-col bg-slate-100 min-h-[100dvh] h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-hidden select-none relative">
+            {/* Desktop Tester Switch Back Button (Only for Admin / Manager previewing mobile app) */}
+            {typeof window !== 'undefined' && window.innerWidth >= 768 && (currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER') && (
+              <div className="fixed bottom-20 right-3 z-50">
                 <button
                   type="button"
                   onClick={() => {
                     setIsMobileView(false);
                     setActiveTab('dashboard');
                   }}
-                  className="px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white text-[11px] font-bold shadow-lg backdrop-blur-md flex items-center gap-1.5 border border-white/20 transition cursor-pointer"
+                  className="px-3.5 py-2 rounded-full bg-slate-900/90 hover:bg-slate-950 text-white text-[11px] font-bold shadow-xl backdrop-blur-md flex items-center gap-1.5 border border-white/20 transition cursor-pointer"
                 >
-                  <span>🖥️ Return to Desktop Admin</span>
+                  <span>🖥️ Return to Desktop Dashboard</span>
                 </button>
               </div>
             )}
 
             {/* Clean Main Content Area with safe scrolling for iOS & Android */}
-            <main className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto overscroll-contain">
+            <main className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto overflow-x-hidden overscroll-contain">
               {activeTab === 'mobile_home' && (
                 <MobileTechnicianView
                   onSelectJob={handleSelectJob}
