@@ -510,11 +510,12 @@ router.put('/:id/postpone', (req, res) => {
     db.prepare(`
       UPDATE jobs SET
         status = 'POSTPONED',
+        scheduled_date = ?,
         postponed_to_date = ?,
         reschedule_reason = ?,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(postponed_to_date, reason || 'Customer requested postponement', id);
+    `).run(postponed_to_date, postponed_to_date, reason || 'Customer requested postponement', id);
 
     db.prepare(`
       INSERT INTO job_logs (job_id, action, notes)

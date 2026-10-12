@@ -23,10 +23,28 @@ import TechLoginModal from '../components/TechLoginModal';
 import InstallAppModal from '../components/InstallAppModal';
 import { getSavedBranding, fetchServerBranding, PresetLogoIcon } from '../components/BrandingSettingsModal';
 
+function getColomboTodayStr() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Colombo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
+}
+
+function addDaysToDateStr(dateStr, days) {
+  const parts = String(dateStr || '').split('-').map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return dateStr;
+  const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] + days));
+  return dt.toISOString().substring(0, 10);
+}
+
 export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, initialJobId, currentUser, onLogout }) {
   const [jobs, setJobs] = useState([]);
+  const [tomorrowJobs, setTomorrowJobs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [todayStr, setTodayStr] = useState(new Date().toISOString().substring(0, 10));
+  const [todayStr, setTodayStr] = useState(() => getColomboTodayStr());
+  const tomorrowStr = useMemo(() => addDaysToDateStr(todayStr, 1), [todayStr]);
 
   // System Branding (App Icon & Company Logo)
   const [branding, setBranding] = useState(() => getSavedBranding());
@@ -53,7 +71,7 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
     return activeTechnicianId || (typeof window !== 'undefined' ? localStorage.getItem('tech_preferred_id') || '' : '');
   });
 
-  // Main screen navigation tab: 'today' | 'completed_history'
+  // Main screen navigation tab: 'today' | 'tomorrow' | 'today_completed' | 'completed_history'
   const [mainTab, setMainTab] = useState('today');
   const [totalCompletedJobs, setTotalCompletedJobs] = useState([]);
   const [totalDoneCount, setTotalDoneCount] = useState(0);
@@ -203,8 +221,10 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         .then(res => {
           if (res?.job) {
             setActiveJob(res.job);
-            if (res.job.scheduled_date) {
-              setTodayStr(res.job.scheduled_date);
+            const jobDate = String(res.job.postponed_to_date || res.job.scheduled_date || '').substring(0, 10);
+            const currentTomorrow = addDaysToDateStr(getColomboTodayStr(), 1);
+            if (jobDate === currentTomorrow) {
+              setMainTab('tomorrow');
             }
             if (res.job.technician_id) {
               const techIdStr = String(res.job.technician_id);
@@ -290,31 +310,60 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
 
   const loadTodayJobs = async () => {
     setLoading(true);
+    const currentToday = getColomboTodayStr();
+    const currentTomorrow = addDaysToDateStr(currentToday, 1);
+    if (todayStr !== currentToday) {
+      setTodayStr(currentToday);
+    }
+    const tid = selectedTechId || (currentUser?.role === 'TECHNICIAN' ? currentUser?.id : '') || techSession?.id || '';
+
+    const getEffectiveJobDate = (j) => {
+      if (!j) return '';
+      if (j.status === 'POSTPONED' && j.postponed_to_date) {
+        return String(j.postponed_to_date).substring(0, 10);
+      }
+      return String(j.scheduled_date || '').substring(0, 10);
+    };
+
+    const filterByDateAndTech = (list, targetDate) => {
+      if (!Array.isArray(list)) return [];
+      return list.filter(j => {
+        if (!j) return false;
+        if (tid && String(j.technician_id) !== String(tid)) return false;
+        return getEffectiveJobDate(j) === targetDate;
+      });
+    };
+
     try {
       if (navigator.onLine) {
-        const res = await getJobs({
-          date: todayStr,
-          technician_id: selectedTechId || undefined
-        });
-        const serverJobs = res.jobs || [];
-        setJobs(serverJobs);
+        const [todayRes, tomorrowRes] = await Promise.all([
+          getJobs({
+            date: currentToday,
+            technician_id: tid || undefined
+          }),
+          getJobs({
+            date: currentTomorrow,
+            technician_id: tid || undefined
+          })
+        ]);
+        const combined = [...(todayRes.jobs || []), ...(tomorrowRes.jobs || [])];
+        const uniqueJobs = Array.from(new Map(combined.filter(Boolean).map(item => [item.id, item])).values());
+
+        setJobs(filterByDateAndTech(uniqueJobs, currentToday));
+        setTomorrowJobs(filterByDateAndTech(uniqueJobs, currentTomorrow));
         // Cache in local IndexedDB for zero-latency offline access
-        await cacheJobs(serverJobs);
+        await cacheJobs(uniqueJobs);
       } else {
         // Read directly from IndexedDB when offline
         const cached = await getCachedJobs();
-        const filtered = Array.isArray(cached)
-          ? cached.filter(j => (!todayStr || j.scheduled_date === todayStr) && (!selectedTechId || String(j.technician_id) === String(selectedTechId)))
-          : [];
-        setJobs(filtered);
+        setJobs(filterByDateAndTech(cached, currentToday));
+        setTomorrowJobs(filterByDateAndTech(cached, currentTomorrow));
       }
     } catch (e) {
       console.warn('Network error fetching jobs, loading from IndexedDB:', e);
       const cached = await getCachedJobs();
-      const filtered = Array.isArray(cached)
-        ? cached.filter(j => (!todayStr || j.scheduled_date === todayStr) && (!selectedTechId || String(j.technician_id) === String(selectedTechId)))
-        : [];
-      setJobs(filtered);
+      setJobs(filterByDateAndTech(cached, currentToday));
+      setTomorrowJobs(filterByDateAndTech(cached, currentTomorrow));
     } finally {
       setLoading(false);
     }
@@ -378,6 +427,7 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         data: {}
       });
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'IN_PROGRESS' } : j));
+      setTomorrowJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'IN_PROGRESS' } : j));
       if (activeJob?.id === jobId) {
         setActiveJob(prev => ({ ...prev, status: 'IN_PROGRESS' }));
       }
@@ -400,6 +450,7 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         data: {}
       });
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'IN_PROGRESS' } : j));
+      setTomorrowJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'IN_PROGRESS' } : j));
       alert('⚡ Network issue detected. Job started in offline queue!');
     }
   };
@@ -416,7 +467,7 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
   const handleOpenPostpone = (job, e) => {
     if (e) e.stopPropagation();
     setJobToPostpone(job);
-    setPostponeDate('');
+    setPostponeDate(tomorrowStr);
     setPostponeReason('');
     setShowPostponeModal(true);
   };
@@ -440,6 +491,15 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         data: payload
       });
       setJobs(prev => prev.map(j => j.id === jobToComplete.id ? {
+        ...j,
+        status: 'COMPLETED',
+        technician_notes: completionNotes,
+        customer_signature: customerSignature,
+        photo_url: photoUrl,
+        photos: payload.photos,
+        completed_at: new Date().toISOString()
+      } : j));
+      setTomorrowJobs(prev => prev.map(j => j.id === jobToComplete.id ? {
         ...j,
         status: 'COMPLETED',
         technician_notes: completionNotes,
@@ -477,6 +537,7 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         data: payload
       });
       setJobs(prev => prev.map(j => j.id === jobToComplete.id ? { ...j, status: 'COMPLETED', technician_notes: completionNotes } : j));
+      setTomorrowJobs(prev => prev.map(j => j.id === jobToComplete.id ? { ...j, status: 'COMPLETED', technician_notes: completionNotes } : j));
       setTotalDoneCount(prev => prev + 1);
       alert('⚡ Connection dropped: Completed job saved to local offline database! Will auto-sync when online.');
       setShowCompleteModal(false);
@@ -498,14 +559,38 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
       reason: postponeReason
     };
 
+    const applyLocalPostpone = () => {
+      const updatedJob = {
+        ...jobToPostpone,
+        status: 'POSTPONED',
+        scheduled_date: postponeDate,
+        postponed_to_date: postponeDate,
+        reschedule_reason: postponeReason
+      };
+      if (postponeDate !== todayStr) {
+        setJobs(prev => prev.filter(j => j.id !== jobToPostpone.id));
+      } else {
+        setJobs(prev => prev.map(j => j.id === jobToPostpone.id ? updatedJob : j));
+      }
+      if (postponeDate === tomorrowStr) {
+        setTomorrowJobs(prev => {
+          const exists = prev.some(j => j.id === jobToPostpone.id);
+          return exists ? prev.map(j => j.id === jobToPostpone.id ? updatedJob : j) : [...prev, updatedJob];
+        });
+        setMainTab('tomorrow');
+      } else {
+        setTomorrowJobs(prev => prev.filter(j => j.id !== jobToPostpone.id));
+      }
+    };
+
     if (!navigator.onLine) {
       await enqueueOfflineMutation({
         type: 'POSTPONE_JOB',
         jobId: jobToPostpone.id,
         data: payload
       });
-      setJobs(prev => prev.map(j => j.id === jobToPostpone.id ? { ...j, status: 'POSTPONED' } : j));
-      alert(`⚡ Job postponed offline to ${postponeDate}. Will sync when connection returns.`);
+      applyLocalPostpone();
+      alert(`⚡ Job scheduled/postponed offline to ${postponeDate}. Moved out of Today's list.`);
       setShowPostponeModal(false);
       setJobToPostpone(null);
       if (activeJob?.id === jobToPostpone.id) {
@@ -516,7 +601,8 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
 
     try {
       await postponeJob(jobToPostpone.id, payload);
-      alert(`Job postponed to ${postponeDate}`);
+      applyLocalPostpone();
+      alert(`Job rescheduled to ${postponeDate}`);
       setShowPostponeModal(false);
       setJobToPostpone(null);
       if (activeJob?.id === jobToPostpone.id) {
@@ -529,6 +615,7 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         jobId: jobToPostpone.id,
         data: payload
       });
+      applyLocalPostpone();
       alert(`⚡ Connection issue: Job postponed offline to ${postponeDate}. Will auto-sync when online.`);
       setShowPostponeModal(false);
       setJobToPostpone(null);
@@ -549,15 +636,39 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
     window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
   };
 
-  const safeJobs = Array.isArray(jobs) ? jobs : [];
+  const safeJobs = useMemo(() => {
+    if (!Array.isArray(jobs)) return [];
+    return jobs.filter(j => {
+      if (!j) return false;
+      const effDate = (j.status === 'POSTPONED' && j.postponed_to_date)
+        ? String(j.postponed_to_date).substring(0, 10)
+        : String(j.scheduled_date || '').substring(0, 10);
+      return effDate === todayStr;
+    });
+  }, [jobs, todayStr]);
+
+  const safeTomorrowJobs = useMemo(() => {
+    if (!Array.isArray(tomorrowJobs)) return [];
+    return tomorrowJobs.filter(j => {
+      if (!j) return false;
+      const effDate = (j.status === 'POSTPONED' && j.postponed_to_date)
+        ? String(j.postponed_to_date).substring(0, 10)
+        : String(j.scheduled_date || '').substring(0, 10);
+      return effDate === tomorrowStr;
+    });
+  }, [tomorrowJobs, tomorrowStr]);
 
   const todayCompletedJobs = useMemo(() => {
     return safeJobs.filter(j => j && j.status === 'COMPLETED');
   }, [safeJobs]);
 
   const todayTodoJobs = useMemo(() => {
-    return safeJobs.filter(j => j && j.status !== 'COMPLETED');
+    return safeJobs.filter(j => j && j.status !== 'COMPLETED' && j.status !== 'CANCELLED');
   }, [safeJobs]);
+
+  const tomorrowTodoJobs = useMemo(() => {
+    return safeTomorrowJobs.filter(j => j && j.status !== 'COMPLETED' && j.status !== 'CANCELLED');
+  }, [safeTomorrowJobs]);
 
   const filteredCompletedJobs = useMemo(() => {
     if (!Array.isArray(totalCompletedJobs)) return [];
@@ -721,25 +832,25 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
                 type="button"
                 onClick={() => setMainTab('today')}
                 className={`p-1.5 rounded-xl border transition cursor-pointer ${
-                  mainTab === 'today' ? 'bg-sky-500/30 border-sky-300 ring-1 ring-sky-300/50' : 'bg-sky-500/15 border-sky-400/30'
+                  mainTab === 'today' ? 'bg-sky-500/30 border-sky-300 ring-1 ring-sky-300/50 shadow-sm' : 'bg-sky-500/15 border-sky-400/30'
                 }`}
               >
                 <div className="text-base font-black text-sky-300">
-                  {safeJobs.filter(j => j && (j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED')).length}
+                  {todayTodoJobs.length}
                 </div>
-                <div className="text-[9px] font-bold text-sky-200 uppercase truncate">Assigned</div>
+                <div className="text-[9px] font-bold text-sky-200 uppercase truncate">Today Job</div>
               </button>
               <button
                 type="button"
-                onClick={() => setMainTab('today')}
+                onClick={() => setMainTab('tomorrow')}
                 className={`p-1.5 rounded-xl border transition cursor-pointer ${
-                  mainTab === 'today' ? 'bg-amber-500/30 border-amber-300 ring-1 ring-amber-300/50' : 'bg-amber-500/15 border-amber-400/30'
+                  mainTab === 'tomorrow' ? 'bg-indigo-500/35 border-indigo-300 ring-1 ring-indigo-300/60 shadow-sm' : 'bg-indigo-500/15 border-indigo-400/30'
                 }`}
               >
-                <div className="text-base font-black text-amber-300">
-                  {safeJobs.filter(j => j && j.status === 'IN_PROGRESS').length}
+                <div className="text-base font-black text-indigo-200">
+                  {tomorrowTodoJobs.length}
                 </div>
-                <div className="text-[9px] font-bold text-amber-200 uppercase truncate">Active</div>
+                <div className="text-[9px] font-bold text-indigo-200 uppercase truncate">Tomorrow Job</div>
               </button>
               <button
                 type="button"
@@ -822,65 +933,120 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         </div>
       )}
 
-      {/* Prominent Tab Switcher: TODAY TO-DO vs TODAY DONE vs TOTAL JOBS DONE */}
+      {/* Primary Schedule Tab Bar: TODAY JOB vs TOMORROW JOB */}
       {!activeJob && !(initialJobId && loading) && (
-        <div className="mx-3.5 mt-3 grid grid-cols-3 p-1.5 bg-slate-200/90 rounded-2xl border border-slate-300 shadow-inner gap-1">
-          <button
-            type="button"
-            onClick={() => setMainTab('today')}
-            className={`py-2 px-1 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
-              mainTab === 'today'
-                ? 'bg-red-600 text-white shadow-md'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">To-Do</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-              mainTab === 'today' ? 'bg-white/20 text-white' : 'bg-slate-300 text-slate-700'
-            }`}>
-              {todayTodoJobs.length}
-            </span>
-          </button>
+        <div className="mx-3.5 mt-3 space-y-2">
+          <div className="grid grid-cols-2 p-1.5 bg-white rounded-2xl border-2 border-red-100 shadow-md gap-2">
+            <button
+              type="button"
+              onClick={() => setMainTab('today')}
+              className={`py-2.5 px-3 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer ${
+                mainTab === 'today'
+                  ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-md shadow-red-200'
+                  : 'bg-slate-50 text-slate-700 hover:bg-red-50 hover:text-red-700'
+              }`}
+            >
+              <Calendar className="w-4 h-4 shrink-0" />
+              <span>Today Job</span>
+              <span className={`text-[11px] px-2 py-0.5 rounded-full font-black ${
+                mainTab === 'today' ? 'bg-white/25 text-white' : 'bg-red-100 text-red-700'
+              }`}>
+                {todayTodoJobs.length}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setMainTab('today_completed')}
-            className={`py-2 px-1 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
-              mainTab === 'today_completed'
-                ? 'bg-emerald-600 text-white shadow-md'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-            }`}
-          >
-            <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-300" />
-            <span className="truncate">Today Done</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-              mainTab === 'today_completed' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
-            }`}>
-              {todayCompletedJobs.length}
-            </span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setMainTab('tomorrow')}
+              className={`py-2.5 px-3 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer ${
+                mainTab === 'tomorrow'
+                  ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-200'
+                  : 'bg-slate-50 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700'
+              }`}
+            >
+              <Clock className="w-4 h-4 shrink-0" />
+              <span>Tomorrow Job</span>
+              <span className={`text-[11px] px-2 py-0.5 rounded-full font-black ${
+                mainTab === 'tomorrow' ? 'bg-white/25 text-white' : 'bg-indigo-100 text-indigo-700'
+              }`}>
+                {tomorrowTodoJobs.length}
+              </span>
+            </button>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              setMainTab('completed_history');
-              loadTotalCompletedJobs();
-            }}
-            className={`py-2 px-1 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
-              mainTab === 'completed_history'
-                ? 'bg-gradient-to-r from-amber-600 to-yellow-600 text-white shadow-md'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-            }`}
-          >
-            <Award className="w-3.5 h-3.5 shrink-0 text-amber-300" />
-            <span className="truncate">Total Done</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-              mainTab === 'completed_history' ? 'bg-white/20 text-white' : 'bg-yellow-100 text-yellow-800'
-            }`}>
-              {totalDoneCount}
-            </span>
-          </button>
+          {/* 4-Tab Bar: TODAY JOB | TOMORROW JOB | TODAY DONE | TOTAL DONE */}
+          <div className="grid grid-cols-4 p-1 bg-slate-200/90 rounded-2xl border border-slate-300 shadow-inner gap-1">
+            <button
+              type="button"
+              onClick={() => setMainTab('today')}
+              className={`py-1.5 px-1 rounded-xl font-black text-[11px] flex items-center justify-center gap-1 transition cursor-pointer ${
+                mainTab === 'today'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <span className="truncate">Today Job</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                mainTab === 'today' ? 'bg-white/20 text-white' : 'bg-slate-300 text-slate-700'
+              }`}>
+                {todayTodoJobs.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMainTab('tomorrow')}
+              className={`py-1.5 px-1 rounded-xl font-black text-[11px] flex items-center justify-center gap-1 transition cursor-pointer ${
+                mainTab === 'tomorrow'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <span className="truncate">Tomorrow</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                mainTab === 'tomorrow' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-800'
+              }`}>
+                {tomorrowTodoJobs.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMainTab('today_completed')}
+              className={`py-1.5 px-1 rounded-xl font-black text-[11px] flex items-center justify-center gap-1 transition cursor-pointer ${
+                mainTab === 'today_completed'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <span className="truncate">Today Done</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                mainTab === 'today_completed' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+              }`}>
+                {todayCompletedJobs.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setMainTab('completed_history');
+                loadTotalCompletedJobs();
+              }}
+              className={`py-1.5 px-1 rounded-xl font-black text-[11px] flex items-center justify-center gap-1 transition cursor-pointer ${
+                mainTab === 'completed_history'
+                  ? 'bg-gradient-to-r from-amber-600 to-yellow-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <span className="truncate">Total Done</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                mainTab === 'completed_history' ? 'bg-white/20 text-white' : 'bg-yellow-100 text-yellow-800'
+              }`}>
+                {totalDoneCount}
+              </span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -893,169 +1059,358 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         </div>
       )}
 
-      {/* VIEW 1: TODAY'S JOBS FEED OR COMPLETED HISTORY FEED */}
+      {/* VIEW 1: TODAY'S JOBS FEED, TOMORROW'S JOBS FEED, OR COMPLETED HISTORY FEED */}
       {!activeJob && !(initialJobId && loading) && (
         <div className="p-3.5 space-y-3">
           {mainTab === 'today' ? (
-            loading ? (
-            <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 shadow-sm mt-4 space-y-2">
-              <RefreshCw className="w-8 h-8 text-red-600 animate-spin mx-auto" />
-              <div className="font-bold text-slate-700 text-xs">Loading operational schedule...</div>
-            </div>
-          ) : todayTodoJobs.length === 0 ? (
-            <div className="p-8 text-center bg-white rounded-3xl border border-emerald-100 shadow-sm mt-4 space-y-3">
-              <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
-              <div className="font-black text-slate-800 text-sm">
-                {todayCompletedJobs.length > 0 ? 'All Scheduled Jobs Done for Today!' : 'All Clear for Today!'}
+            <div className="space-y-3">
+              {/* Today Schedule Header Banner */}
+              <div className="bg-gradient-to-r from-red-600 via-rose-600 to-slate-900 rounded-2xl px-4 py-3 text-white shadow-sm flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+                    <Calendar className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold text-red-100 uppercase tracking-wider">Today's Operational List</div>
+                    <h3 className="text-sm font-black text-white">Today Job &bull; {todayStr}</h3>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xl font-black text-white">{todayTodoJobs.length}</div>
+                  <div className="text-[9px] uppercase font-bold text-red-100">Pending Today</div>
+                </div>
               </div>
-              <p className="text-xs text-slate-500">
-                {todayCompletedJobs.length > 0
-                  ? `Great job! You have completed all ${todayCompletedJobs.length} assigned jobs for today.`
-                  : 'No pending jobs found for this date. Check tomorrow or pick another technician.'}
-              </p>
-              {todayCompletedJobs.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setMainTab('today_completed')}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs inline-flex items-center gap-1.5 transition cursor-pointer shadow-sm mx-auto"
-                >
-                  <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                  <span>View Today Completed ({todayCompletedJobs.length})</span>
-                </button>
-              )}
-            </div>
-          ) : (
-            todayTodoJobs.map(job => {
-              const formattedPhone = job.customer_phone ? job.customer_phone.replace(/[^0-9]/g, '') : '';
-              const intlPhone = formattedPhone.startsWith('0')
-                ? '94' + formattedPhone.substring(1)
-                : formattedPhone.startsWith('94')
-                  ? formattedPhone
-                  : '94' + formattedPhone;
 
-              const whatsappText = encodeURIComponent(`Hello ${job.customer_name}, this is your Pest Control Technician. I am on my way for your scheduled ${job.treatment_code} service today.`);
-
-              return (
-                <div
-                  key={job.id}
-                  onClick={() => setActiveJob(job)}
-                  className="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition space-y-3 cursor-pointer relative overflow-hidden"
-                >
-                  <div
-                    className="absolute top-0 left-0 bottom-0 w-1.5"
-                    style={{ backgroundColor: job.treatment_color || '#10B981' }}
-                  ></div>
-
-                  {/* Header: Customer & Status */}
-                  <div className="flex items-start justify-between gap-2 pl-1.5">
-                    <div>
-                      <h3 className="font-black text-slate-900 text-base leading-tight">{job.customer_name}</h3>
-                      <div className="text-[11px] text-slate-400 font-mono mt-0.5">{job.job_code}</div>
-                    </div>
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase shrink-0 ${
-                      job.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' :
-                      job.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-800 animate-pulse' :
-                      job.status === 'POSTPONED' ? 'bg-indigo-100 text-indigo-800' :
-                      'bg-slate-100 text-slate-700'
-                    }`}>
-                      {job.status}
-                    </span>
+              {loading ? (
+                <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 shadow-sm mt-2 space-y-2">
+                  <RefreshCw className="w-8 h-8 text-red-600 animate-spin mx-auto" />
+                  <div className="font-bold text-slate-700 text-xs">Loading today's schedule...</div>
+                </div>
+              ) : todayTodoJobs.length === 0 ? (
+                <div className="p-8 text-center bg-white rounded-3xl border border-emerald-100 shadow-sm mt-2 space-y-3">
+                  <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
+                  <div className="font-black text-slate-800 text-sm">
+                    {todayCompletedJobs.length > 0 ? 'All Scheduled Jobs Done for Today!' : 'No Pending Jobs for Today!'}
                   </div>
-
-                  {/* Details: Location, Time, Treatment */}
-                  <div className="space-y-1.5 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-2xl border border-slate-100 pl-3">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span className="font-semibold text-slate-800 line-clamp-1">
-                        {job.location_name || job.location_address || 'Main Location'}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100">
-                      <div className="flex items-center gap-1.5 font-bold text-slate-700">
-                        <Clock className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{job.scheduled_time || '09:00'} ({job.duration_minutes || 60}m)</span>
-                      </div>
-
-                      <span
-                        style={{ backgroundColor: `${job.treatment_color || '#10B981'}20`, color: job.treatment_color || '#10B981' }}
-                        className="px-2.5 py-0.5 rounded-lg font-black text-[11px]"
-                      >
-                        {job.treatment_code}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Field Actions: Call, WhatsApp, Navigation, Start / Complete */}
-                  <div className="space-y-2 pt-1 pl-1.5" onClick={(e) => e.stopPropagation()}>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {/* Call Button */}
-                      {job.customer_phone ? (
-                        <a
-                          href={`tel:${job.customer_phone}`}
-                          className="flex items-center justify-center gap-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs transition"
-                        >
-                          <Phone className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>CALL</span>
-                        </a>
-                      ) : (
-                        <div className="py-2 bg-slate-50 text-slate-400 font-bold rounded-xl text-[10px] text-center">NO PHONE</div>
-                      )}
-
-                      {/* WhatsApp Button */}
-                      {job.customer_phone ? (
-                        <a
-                          href={`https://wa.me/${intlPhone}?text=${whatsappText}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center justify-center gap-1 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold rounded-xl text-xs transition border border-emerald-200/60"
-                        >
-                          <span className="text-emerald-600 font-bold text-xs">💬</span>
-                          <span>CHAT</span>
-                        </a>
-                      ) : (
-                        <div className="py-2 bg-slate-50 text-slate-400 font-bold rounded-xl text-[10px] text-center">NO WA</div>
-                      )}
-
-                      {/* Navigate Button */}
+                  <p className="text-xs text-slate-500">
+                    {todayCompletedJobs.length > 0
+                      ? `Great job! You have completed all ${todayCompletedJobs.length} assigned jobs for today (${todayStr}).`
+                      : `No pending jobs scheduled for today (${todayStr}). Jobs scheduled for tomorrow are in the Tomorrow Job tab.`}
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                    {tomorrowTodoJobs.length > 0 && (
                       <button
-                        onClick={(e) => openNavigation(job, e)}
-                        className="flex items-center justify-center gap-1 py-2 bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold rounded-xl text-xs transition border border-blue-200/60"
+                        type="button"
+                        onClick={() => setMainTab('tomorrow')}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs inline-flex items-center gap-1.5 transition cursor-pointer shadow-sm"
                       >
-                        <Navigation className="w-3.5 h-3.5 text-blue-600" />
-                        <span>MAPS</span>
+                        <Clock className="w-4 h-4 text-indigo-200" />
+                        <span>View Tomorrow Jobs ({tomorrowTodoJobs.length})</span>
                       </button>
-                    </div>
-
-                    {/* Primary Workflow Button */}
-                    {job.status === 'IN_PROGRESS' ? (
+                    )}
+                    {todayCompletedJobs.length > 0 && (
                       <button
-                        onClick={(e) => handleOpenComplete(job, e)}
-                        className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-2xl text-xs shadow-md shadow-emerald-200 transition scale-100 active:scale-95"
+                        type="button"
+                        onClick={() => setMainTab('today_completed')}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs inline-flex items-center gap-1.5 transition cursor-pointer shadow-sm"
                       >
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>COMPLETE & TOUCH SIGN-OFF</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                        <span>View Today Completed ({todayCompletedJobs.length})</span>
                       </button>
-                    ) : job.status !== 'COMPLETED' ? (
-                      <button
-                        onClick={(e) => handleStartJob(job.id, e)}
-                        className="w-full flex items-center justify-center gap-2 py-3 bg-slate-900 hover:bg-black text-white font-black rounded-2xl text-xs shadow-md transition scale-100 active:scale-95"
-                      >
-                        <Play className="w-4 h-4 text-emerald-400" />
-                        <span>START JOB NOW</span>
-                      </button>
-                    ) : (
-                      <div className="py-2.5 bg-emerald-50 text-emerald-700 font-bold rounded-2xl text-xs text-center border border-emerald-200 flex items-center justify-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        <span>COMPLETED & NEXT SCHEDULED</span>
-                      </div>
                     )}
                   </div>
                 </div>
-              );
-            })
-          )
-        ) : mainTab === 'today_completed' ? (
+              ) : (
+                todayTodoJobs.map(job => {
+                  const formattedPhone = job.customer_phone ? job.customer_phone.replace(/[^0-9]/g, '') : '';
+                  const intlPhone = formattedPhone.startsWith('0')
+                    ? '94' + formattedPhone.substring(1)
+                    : formattedPhone.startsWith('94')
+                      ? formattedPhone
+                      : '94' + formattedPhone;
+
+                  const whatsappText = encodeURIComponent(`Hello ${job.customer_name}, this is your Pest Control Technician. I am on my way for your scheduled ${job.treatment_code} service today.`);
+
+                  return (
+                    <div
+                      key={job.id}
+                      onClick={() => setActiveJob(job)}
+                      className="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition space-y-3 cursor-pointer relative overflow-hidden"
+                    >
+                      <div
+                        className="absolute top-0 left-0 bottom-0 w-1.5"
+                        style={{ backgroundColor: job.treatment_color || '#10B981' }}
+                      ></div>
+
+                      {/* Header: Customer & Status */}
+                      <div className="flex items-start justify-between gap-2 pl-1.5">
+                        <div>
+                          <h3 className="font-black text-slate-900 text-base leading-tight">{job.customer_name}</h3>
+                          <div className="text-[11px] text-slate-400 font-mono mt-0.5 flex items-center gap-1.5">
+                            <span>{job.job_code}</span>
+                            <span className="px-1.5 py-0.2 rounded bg-red-50 text-red-700 font-bold text-[10px]">
+                              Today ({todayStr})
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase shrink-0 ${
+                          job.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' :
+                          job.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-800 animate-pulse' :
+                          job.status === 'POSTPONED' ? 'bg-indigo-100 text-indigo-800' :
+                          'bg-slate-100 text-slate-700'
+                        }`}>
+                          {job.status}
+                        </span>
+                      </div>
+
+                      {/* Details: Location, Time, Treatment */}
+                      <div className="space-y-1.5 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-2xl border border-slate-100 pl-3">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span className="font-semibold text-slate-800 line-clamp-1">
+                            {job.location_name || job.location_address || 'Main Location'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100">
+                          <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                            <Clock className="w-3.5 h-3.5 text-slate-400" />
+                            <span>{job.scheduled_time || '09:00'} ({job.duration_minutes || 60}m)</span>
+                          </div>
+
+                          <span
+                            style={{ backgroundColor: `${job.treatment_color || '#10B981'}20`, color: job.treatment_color || '#10B981' }}
+                            className="px-2.5 py-0.5 rounded-lg font-black text-[11px]"
+                          >
+                            {job.treatment_code}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Field Actions: Call, WhatsApp, Navigation, Start / Complete */}
+                      <div className="space-y-2 pt-1 pl-1.5" onClick={(e) => e.stopPropagation()}>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {/* Call Button */}
+                          {job.customer_phone ? (
+                            <a
+                              href={`tel:${job.customer_phone}`}
+                              className="flex items-center justify-center gap-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs transition"
+                            >
+                              <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>CALL</span>
+                            </a>
+                          ) : (
+                            <div className="py-2 bg-slate-50 text-slate-400 font-bold rounded-xl text-[10px] text-center">NO PHONE</div>
+                          )}
+
+                          {/* WhatsApp Button */}
+                          {job.customer_phone ? (
+                            <a
+                              href={`https://wa.me/${intlPhone}?text=${whatsappText}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center justify-center gap-1 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold rounded-xl text-xs transition border border-emerald-200/60"
+                            >
+                              <span className="text-emerald-600 font-bold text-xs">💬</span>
+                              <span>CHAT</span>
+                            </a>
+                          ) : (
+                            <div className="py-2 bg-slate-50 text-slate-400 font-bold rounded-xl text-[10px] text-center">NO WA</div>
+                          )}
+
+                          {/* Navigate Button */}
+                          <button
+                            onClick={(e) => openNavigation(job, e)}
+                            className="flex items-center justify-center gap-1 py-2 bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold rounded-xl text-xs transition border border-blue-200/60"
+                          >
+                            <Navigation className="w-3.5 h-3.5 text-blue-600" />
+                            <span>MAPS</span>
+                          </button>
+                        </div>
+
+                        {/* Primary Workflow Button */}
+                        {job.status === 'IN_PROGRESS' ? (
+                          <button
+                            onClick={(e) => handleOpenComplete(job, e)}
+                            className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-2xl text-xs shadow-md shadow-emerald-200 transition scale-100 active:scale-95"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>COMPLETE & TOUCH SIGN-OFF</span>
+                          </button>
+                        ) : job.status !== 'COMPLETED' ? (
+                          <button
+                            onClick={(e) => handleStartJob(job.id, e)}
+                            className="w-full flex items-center justify-center gap-2 py-3 bg-slate-900 hover:bg-black text-white font-black rounded-2xl text-xs shadow-md transition scale-100 active:scale-95"
+                          >
+                            <Play className="w-4 h-4 text-emerald-400" />
+                            <span>START JOB NOW</span>
+                          </button>
+                        ) : (
+                          <div className="py-2.5 bg-emerald-50 text-emerald-700 font-bold rounded-2xl text-xs text-center border border-emerald-200 flex items-center justify-center gap-1.5">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                            <span>COMPLETED & NEXT SCHEDULED</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          ) : mainTab === 'tomorrow' ? (
+            /* TOMORROW'S SCHEDULED JOBS FEED */
+            <div className="space-y-3">
+              {/* Tomorrow Schedule Header Banner */}
+              <div className="bg-gradient-to-r from-indigo-700 via-blue-700 to-slate-900 rounded-2xl px-4 py-3 text-white shadow-sm flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+                    <Clock className="w-5 h-5 text-indigo-200" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold text-indigo-200 uppercase tracking-wider">Upcoming Advance Schedule</div>
+                    <h3 className="text-sm font-black text-white">Tomorrow Job &bull; {tomorrowStr}</h3>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xl font-black text-indigo-200">{tomorrowTodoJobs.length}</div>
+                  <div className="text-[9px] uppercase font-bold text-indigo-200">For Tomorrow</div>
+                </div>
+              </div>
+
+              {loading ? (
+                <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 shadow-sm mt-2 space-y-2">
+                  <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin mx-auto" />
+                  <div className="font-bold text-slate-700 text-xs">Loading tomorrow's schedule...</div>
+                </div>
+              ) : tomorrowTodoJobs.length === 0 ? (
+                <div className="p-8 text-center bg-white rounded-3xl border border-indigo-100 shadow-sm mt-2 space-y-3">
+                  <Calendar className="w-12 h-12 text-indigo-400 mx-auto" />
+                  <div className="font-black text-slate-800 text-sm">
+                    No Jobs Scheduled for Tomorrow ({tomorrowStr})
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    When jobs are scheduled or postponed for tomorrow ({tomorrowStr}), they will appear in this Tomorrow Job tab instead of Today's list.
+                  </p>
+                </div>
+              ) : (
+                tomorrowTodoJobs.map(job => {
+                  const formattedPhone = job.customer_phone ? job.customer_phone.replace(/[^0-9]/g, '') : '';
+                  const intlPhone = formattedPhone.startsWith('0')
+                    ? '94' + formattedPhone.substring(1)
+                    : formattedPhone.startsWith('94')
+                      ? formattedPhone
+                      : '94' + formattedPhone;
+
+                  const whatsappText = encodeURIComponent(`Hello ${job.customer_name}, this is your Pest Control Technician confirming your scheduled ${job.treatment_code} service for tomorrow (${tomorrowStr}) at ${job.scheduled_time || '09:00'}.`);
+
+                  return (
+                    <div
+                      key={job.id}
+                      onClick={() => setActiveJob(job)}
+                      className="bg-white rounded-3xl border-2 border-indigo-100 p-4 shadow-sm hover:shadow-md transition space-y-3 cursor-pointer relative overflow-hidden"
+                    >
+                      <div
+                        className="absolute top-0 left-0 bottom-0 w-1.5"
+                        style={{ backgroundColor: job.treatment_color || '#4F46E5' }}
+                      ></div>
+
+                      {/* Header: Customer & Status */}
+                      <div className="flex items-start justify-between gap-2 pl-1.5">
+                        <div>
+                          <h3 className="font-black text-slate-900 text-base leading-tight">{job.customer_name}</h3>
+                          <div className="text-[11px] text-slate-400 font-mono mt-0.5 flex items-center gap-1.5">
+                            <span>{job.job_code}</span>
+                            <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 font-black text-[10px]">
+                              📆 Tomorrow ({tomorrowStr})
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase shrink-0 ${
+                          job.status === 'POSTPONED' ? 'bg-indigo-100 text-indigo-800' :
+                          job.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-800 animate-pulse' :
+                          'bg-blue-50 text-blue-700 border border-blue-200'
+                        }`}>
+                          {job.status}
+                        </span>
+                      </div>
+
+                      {/* Details: Location, Time, Treatment */}
+                      <div className="space-y-1.5 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-2xl border border-slate-100 pl-3">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-indigo-600 shrink-0" />
+                          <span className="font-semibold text-slate-800 line-clamp-1">
+                            {job.location_name || job.location_address || 'Main Location'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100">
+                          <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                            <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                            <span>{job.scheduled_time || '09:00'} ({job.duration_minutes || 60}m)</span>
+                          </div>
+
+                          <span
+                            style={{ backgroundColor: `${job.treatment_color || '#4F46E5'}20`, color: job.treatment_color || '#4F46E5' }}
+                            className="px-2.5 py-0.5 rounded-lg font-black text-[11px]"
+                          >
+                            {job.treatment_code}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Field Actions: Call, WhatsApp, Navigation, View Details */}
+                      <div className="space-y-2 pt-1 pl-1.5" onClick={(e) => e.stopPropagation()}>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {job.customer_phone ? (
+                            <a
+                              href={`tel:${job.customer_phone}`}
+                              className="flex items-center justify-center gap-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs transition"
+                            >
+                              <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>CALL</span>
+                            </a>
+                          ) : (
+                            <div className="py-2 bg-slate-50 text-slate-400 font-bold rounded-xl text-[10px] text-center">NO PHONE</div>
+                          )}
+
+                          {job.customer_phone ? (
+                            <a
+                              href={`https://wa.me/${intlPhone}?text=${whatsappText}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center justify-center gap-1 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold rounded-xl text-xs transition border border-emerald-200/60"
+                            >
+                              <span className="text-emerald-600 font-bold text-xs">💬</span>
+                              <span>CHAT</span>
+                            </a>
+                          ) : (
+                            <div className="py-2 bg-slate-50 text-slate-400 font-bold rounded-xl text-[10px] text-center">NO WA</div>
+                          )}
+
+                          <button
+                            onClick={(e) => openNavigation(job, e)}
+                            className="flex items-center justify-center gap-1 py-2 bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold rounded-xl text-xs transition border border-blue-200/60"
+                          >
+                            <Navigation className="w-3.5 h-3.5 text-blue-600" />
+                            <span>MAPS</span>
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveJob(job)}
+                          className="w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-xs shadow-sm transition cursor-pointer"
+                        >
+                          <Calendar className="w-4 h-4 text-indigo-200" />
+                          <span>VIEW TOMORROW JOB DETAILS</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          ) : mainTab === 'today_completed' ? (
           /* TODAY COMPLETED JOBS FEED */
           <div className="space-y-3">
             {/* Today Completed Summary Banner */}

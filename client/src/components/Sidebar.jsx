@@ -250,46 +250,29 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
         <div className="px-3.5 pb-3">
           <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/90 shadow-2xs space-y-2">
             <div className="flex items-center gap-2">
-              <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-white shrink-0 shadow-xs ${
-                currentUser.role === 'ADMIN'
-                  ? 'bg-gradient-to-tr from-purple-700 to-indigo-600'
-                  : 'bg-gradient-to-tr from-blue-700 to-teal-600'
-              }`}>
-                {currentUser.role === 'ADMIN' ? '👑' : '📊'}
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center font-bold text-white shrink-0 shadow-xs bg-gradient-to-tr from-teal-700 to-emerald-600">
+                📊
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-bold text-slate-900 truncate leading-tight">
                   {currentUser.full_name}
                 </div>
-                <div className={`text-[9px] font-black uppercase tracking-wider ${
-                  currentUser.role === 'ADMIN' ? 'text-purple-600' : 'text-blue-600'
-                }`}>
-                  {currentUser.role === 'ADMIN' ? 'Administrator' : 'Operations Manager'}
+                <div className="text-[9px] font-black uppercase tracking-wider text-teal-700">
+                  Operations Control Dashboard
                 </div>
               </div>
             </div>
 
             <div className="flex items-center gap-1.5 pt-1">
-              {onSwitchUser && (
-                <button
-                  type="button"
-                  onClick={() => onSwitchUser(currentUser.role === 'ADMIN' ? 'MANAGER' : 'ADMIN')}
-                  title={currentUser.role === 'ADMIN' ? 'Switch to Operations Manager' : 'Switch to Admin'}
-                  className="flex-1 py-1 px-2 rounded-xl bg-slate-200/80 hover:bg-slate-200 text-slate-700 text-[10px] font-bold text-center transition cursor-pointer active:scale-95"
-                >
-                  {currentUser.role === 'ADMIN' ? '⇄ Ops Mgr' : '⇄ Admin'}
-                </button>
-              )}
-
               {onLogout && (
                 <button
                   type="button"
                   onClick={onLogout}
                   title="Sign Out to Login Page"
-                  className="py-1 px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-bold border border-rose-200 transition cursor-pointer flex items-center gap-1 active:scale-95 shrink-0"
+                  className="w-full py-1.5 px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-bold border border-rose-200 transition cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
                 >
                   <LogOut className="w-3 h-3 text-rose-600" />
-                  <span>Logout</span>
+                  <span>Sign Out</span>
                 </button>
               )}
             </div>

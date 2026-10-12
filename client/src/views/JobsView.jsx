@@ -122,9 +122,22 @@ export default function JobsView({
   const [customers, setCustomers] = useState([]);
 
   // Create Manual Job Form
+  const colomboToday = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Colombo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
+
+  const colomboTomorrow = (() => {
+    const parts = colomboToday.split('-').map(Number);
+    const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] + 1));
+    return dt.toISOString().substring(0, 10);
+  })();
+
   const [newJobForm, setNewJobForm] = useState({
     customer_id: '', location_id: '', treatment_id: '', technician_id: '',
-    salesman_id: '', scheduled_date: new Date().toISOString().substring(0, 10),
+    salesman_id: '', scheduled_date: colomboToday,
     scheduled_time: '09:00', duration_minutes: 60, crew_count: 1, notes: ''
   });
 
@@ -144,6 +157,15 @@ export default function JobsView({
       // Strict client-side guarantee: Never show another technician's job in technician mode across all status filters
       if (isTechnicianMode && effectiveTech) {
         jobList = jobList.filter(j => String(j.technician_id) === String(effectiveTech));
+      }
+      // Strict client-side date separation: if dateFilter is set, only show jobs matching that exact effective date
+      if (dateFilter) {
+        jobList = jobList.filter(j => {
+          const effDate = (j.status === 'POSTPONED' && j.postponed_to_date)
+            ? String(j.postponed_to_date).substring(0, 10)
+            : String(j.scheduled_date || '').substring(0, 10);
+          return effDate === dateFilter;
+        });
       }
       setJobs(jobList);
       setTotal(jobList.length);
@@ -320,6 +342,48 @@ export default function JobsView({
             </button>
           </div>
         )}
+      </div>
+
+      {/* Quick Schedule Tab Bar: Today Job | Tomorrow Job | All Jobs */}
+      <div className="grid grid-cols-3 p-1.5 bg-white rounded-2xl border border-slate-200 shadow-2xs gap-2">
+        <button
+          type="button"
+          onClick={() => setDateFilter(colomboToday)}
+          className={`py-2.5 px-2 sm:px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
+            dateFilter === colomboToday
+              ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-sm'
+              : 'bg-slate-50 text-slate-700 hover:bg-red-50 hover:text-red-700'
+          }`}
+        >
+          <CalendarIcon className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">Today Job</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setDateFilter(colomboTomorrow)}
+          className={`py-2.5 px-2 sm:px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
+            dateFilter === colomboTomorrow
+              ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm'
+              : 'bg-slate-50 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700'
+          }`}
+        >
+          <Clock className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">Tomorrow Job</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setDateFilter('')}
+          className={`py-2.5 px-2 sm:px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
+            dateFilter === ''
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+          }`}
+        >
+          <Briefcase className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">All Jobs</span>
+        </button>
       </div>
 
       {/* Filter Bar */}

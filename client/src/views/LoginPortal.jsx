@@ -18,7 +18,7 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
   const [authMethod, setAuthMethod] = useState(() => isTechOnly ? 'sms_otp' : 'password');
 
   // Password Sign-In State
-  const [selectedRole, setSelectedRole] = useState('ADMIN');
+  const [selectedRole, setSelectedRole] = useState('ALL');
   const [identifier, setIdentifier] = useState('admin');
   const [password, setPassword] = useState('admin123');
   const [showPassword, setShowPassword] = useState(false);
@@ -318,48 +318,11 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
             <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
               {isTechOnly ? 'Field Technician App' : (branding?.companyName || 'Ceylon Pest Management')}
             </h1>
-            <p className="text-xs text-slate-400 mt-1 font-medium">
-              {isTechOnly ? '1-Time SMS OTP Mobile Verification' : 'Enterprise Operations & Field Technician System'}
+            <p className="text-xs text-emerald-400 mt-1 font-bold uppercase tracking-wider">
+              {isTechOnly ? '1-Time SMS OTP Mobile Verification' : 'Operations Control Dashboard'}
             </p>
           </div>
         </div>
-
-        {/* Auth Method Switcher Tabs (Only visible for Office Staff / Admins, NOT on Technician App) */}
-        {!isTechOnly && (
-          <div className="bg-slate-900/90 backdrop-blur-xl p-1.5 rounded-2xl border border-slate-800 flex shadow-xl">
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMethod('password');
-                setPasswordError(null);
-              }}
-              className={`flex-1 py-2 px-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 ${
-                authMethod === 'password'
-                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Key className="w-3.5 h-3.5" />
-              <span>Staff Password Sign-In</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMethod('sms_otp');
-                setOtpError(null);
-              }}
-              className={`flex-1 py-2 px-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 ${
-                authMethod === 'sms_otp'
-                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Smartphone className="w-3.5 h-3.5 text-amber-300" />
-              <span>Technician SMS OTP</span>
-            </button>
-          </div>
-        )}
 
         {/* Main Card */}
         <div className="relative bg-slate-900/90 backdrop-blur-2xl p-6 sm:p-7 rounded-3xl border border-slate-700/60 shadow-2xl shadow-black/80 overflow-hidden">
@@ -370,131 +333,20 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
           />
           <div className="relative z-10 space-y-5">
 
-          {/* TAB 1: ALL ROLES PASSWORD LOGIN */}
+          {/* TAB 1: OPERATIONS CONTROL DASHBOARD PASSWORD LOGIN */}
           {authMethod === 'password' && (
             <form onSubmit={handlePasswordLogin} className="space-y-4">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-2">
-                  Choose Login Role: Admin or Operations Manager
-                </label>
-
-                {/* Primary Dual Switcher Cards: Administrator vs Operations Manager */}
-                <div className="grid grid-cols-2 gap-2.5 mb-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedRole('ADMIN');
-                      setIdentifier('admin');
-                      setPassword('admin123');
-                      setPasswordError(null);
-                    }}
-                    className={`p-3 rounded-2xl border text-left transition-all relative overflow-hidden group cursor-pointer ${
-                      selectedRole === 'ADMIN'
-                        ? 'bg-gradient-to-br from-emerald-500/20 via-slate-900 to-teal-500/10 border-emerald-500 ring-2 ring-emerald-500/40 shadow-lg shadow-emerald-950/40'
-                        : 'bg-slate-950/70 border-slate-800 hover:border-slate-700 text-slate-400'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xl">👑</span>
-                      {selectedRole === 'ADMIN' && (
-                        <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 text-[9px] font-black uppercase tracking-wider border border-emerald-500/50">
-                          Active
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-2">
-                      <div className="font-bold text-white text-xs flex items-center gap-1">
-                        <span>Administrator</span>
-                      </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">Full System Access</div>
-                    </div>
-                    <div className="mt-2 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                      <span>admin</span>
-                      <span className="text-emerald-400 font-bold group-hover:underline">Select &rarr;</span>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedRole('MANAGER');
-                      setIdentifier('manager');
-                      setPassword('manager123');
-                      setPasswordError(null);
-                    }}
-                    className={`p-3 rounded-2xl border text-left transition-all relative overflow-hidden group cursor-pointer ${
-                      selectedRole === 'MANAGER'
-                        ? 'bg-gradient-to-br from-blue-500/20 via-slate-900 to-indigo-500/10 border-blue-500 ring-2 ring-blue-500/40 shadow-lg shadow-blue-950/40'
-                        : 'bg-slate-950/70 border-slate-800 hover:border-slate-700 text-slate-400'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xl">📊</span>
-                      {selectedRole === 'MANAGER' && (
-                        <span className="px-1.5 py-0.5 rounded-full bg-blue-500/30 text-blue-300 text-[9px] font-black uppercase tracking-wider border border-blue-500/50">
-                          Active
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-2">
-                      <div className="font-bold text-white text-xs flex items-center gap-1">
-                        <span>Operations Manager</span>
-                      </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">Schedules & Operations</div>
-                    </div>
-                    <div className="mt-2 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                      <span>manager</span>
-                      <span className="text-blue-400 font-bold group-hover:underline">Select &rarr;</span>
-                    </div>
-                  </button>
+              <div className="p-3.5 rounded-2xl bg-gradient-to-br from-emerald-500/20 via-slate-900 to-teal-500/10 border border-emerald-500/50 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
                 </div>
-
-                {/* Direct 1-Click Fast Sign-In Buttons */}
-                <div className="flex items-center gap-2 mb-3">
-                  <button
-                    type="button"
-                    disabled={passwordLoading}
-                    onClick={() => quickLogin('admin', 'admin123', 'ADMIN')}
-                    className="flex-1 py-2 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 font-bold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95"
-                  >
-                    <span>👑 1-Click Admin Sign-In</span>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={passwordLoading}
-                    onClick={() => quickLogin('manager', 'manager123', 'MANAGER')}
-                    className="flex-1 py-2 px-3 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/40 text-blue-300 font-bold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95"
-                  >
-                    <span>📊 1-Click Ops Manager</span>
-                  </button>
-                </div>
-
-                {/* Secondary Role Filter Bar */}
-                <div className="grid grid-cols-4 gap-1 text-[10px] font-bold">
-                  {[
-                    { id: 'ALL', label: 'All Roles' },
-                    { id: 'SUPERVISOR', label: 'Supervisor' },
-                    { id: 'TECHNICIAN', label: 'Technician' },
-                    { id: 'SALESMAN', label: 'Salesman' }
-                  ].map(r => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedRole(r.id);
-                        if (r.id === 'SUPERVISOR') { setIdentifier('supervisor'); setPassword('supervisor123'); }
-                        else if (r.id === 'TECHNICIAN') { setIdentifier('nilanga'); setPassword('tech123'); }
-                        else if (r.id === 'SALESMAN') { setIdentifier('pubudu'); setPassword('sales123'); }
-                      }}
-                      className={`py-1.5 px-1.5 rounded-lg border text-center transition ${
-                        selectedRole === r.id
-                          ? 'bg-slate-700 text-white border-slate-500'
-                          : 'bg-slate-900/60 text-slate-400 border-slate-800 hover:bg-slate-800'
-                      }`}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
+                <div>
+                  <div className="font-black text-white text-xs sm:text-sm">
+                    Operations Control Dashboard
+                  </div>
+                  <div className="text-[11px] text-slate-300 mt-0.5">
+                    Sign in to access schedules, dispatching & operations
+                  </div>
                 </div>
               </div>
 
@@ -567,7 +419,7 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
                   <RefreshCw className="w-4 h-4 animate-spin" />
                 ) : (
                   <>
-                    <span>SIGN IN TO SYSTEM</span>
+                    <span>SIGN IN TO OPERATIONS CONTROL DASHBOARD</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
@@ -709,108 +561,6 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
 
           </div>
         </div>
-
-        {/* Quick Demo Credentials Switcher (Only visible for Office Staff / Admins, NEVER on Technician App) */}
-        {!isTechOnly && (
-          <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 text-xs space-y-2.5">
-            <div className="flex items-center justify-between text-slate-400 font-bold text-[11px] uppercase tracking-wider">
-              <span>Quick 1-Click Demo Accounts</span>
-              <span className="text-[10px] text-slate-500">Click to fill</span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => fillPreset('admin', 'admin123', 'ADMIN')}
-                className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition"
-              >
-                <div className="font-bold text-white text-[11px] flex items-center gap-1">
-                  <span>👑 Admin</span>
-                </div>
-                <div className="text-[10px] text-slate-400 font-mono mt-0.5">admin123</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fillPreset('manager', 'manager123', 'MANAGER')}
-                className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition"
-              >
-                <div className="font-bold text-white text-[11px] flex items-center gap-1">
-                  <span>📊 Ops Manager</span>
-                </div>
-                <div className="text-[10px] text-slate-400 font-mono mt-0.5">manager123</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fillPreset('dilhan', 'manager123', 'MANAGER')}
-                className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition"
-              >
-                <div className="font-bold text-blue-400 text-[11px] flex items-center gap-1">
-                  <span>👔 Dilhan (Mgr)</span>
-                </div>
-                <div className="text-[10px] text-slate-400 font-mono mt-0.5">manager123</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fillPreset('supervisor', 'supervisor123', 'SUPERVISOR')}
-                className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition"
-              >
-                <div className="font-bold text-white text-[11px] flex items-center gap-1">
-                  <span>🛡️ Supervisor</span>
-                </div>
-                <div className="text-[10px] text-slate-400 font-mono mt-0.5">supervisor123</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMethod('sms_otp');
-                  setPhone('0729744526');
-                  setOtpStep(1);
-                  setOtpError(null);
-                }}
-                className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition"
-              >
-                <div className="font-bold text-emerald-400 text-[11px] flex items-center gap-1">
-                  <span>📱 Tech Nilanga</span>
-                </div>
-                <div className="text-[10px] text-slate-400 font-mono mt-0.5">072 974 4526</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fillPreset('nilanga', 'tech123', 'TECHNICIAN')}
-                className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition"
-              >
-                <div className="font-bold text-white text-[11px] flex items-center gap-1">
-                  <span>👷 Tech Pass</span>
-                </div>
-                <div className="text-[10px] text-slate-400 font-mono mt-0.5">tech123</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fillPreset('pubudu', 'sales123', 'SALESMAN')}
-                className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition"
-              >
-                <div className="font-bold text-white text-[11px] flex items-center gap-1">
-                  <span>💼 Salesman</span>
-                </div>
-                <div className="text-[10px] text-slate-400 font-mono mt-0.5">sales123</div>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {isTechOnly && (
-          <div className="text-center pt-1">
-            <a href="/" className="text-xs text-slate-500 hover:text-emerald-400 transition font-medium">
-              Administrator / Office Staff Sign-In &rarr;
-            </a>
-          </div>
-        )}
 
       </div>
     </div>
