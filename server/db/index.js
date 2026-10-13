@@ -71,6 +71,11 @@ try {
     CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
   `);
 } catch (e) {}
+try { db.exec("ALTER TABLE sms_settings ADD COLUMN template_24h TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE sms_settings ADD COLUMN template_arrival TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE sms_settings ADD COLUMN template_tech_dispatch TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE sms_settings ADD COLUMN template_completion TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE sms_settings ADD COLUMN custom_note TEXT DEFAULT ''"); } catch (e) {}
 
 // Seed default passwords for staff without password_hash
 try {

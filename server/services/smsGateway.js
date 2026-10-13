@@ -79,39 +79,57 @@ function normalizeSriLankaPhone(phone) {
   };
 }
 
+const DEFAULT_SMS_TEMPLATES = {
+  template_24h: 'PestControl Pro: Reminder that your {TREATMENT} service is scheduled for tomorrow {DATE} at {TIME} ({LOCATION}). Specialist: {TECHNICIAN}. To confirm or reschedule: {LINK} or Call 011-2345678',
+  template_arrival: 'PestControl Pro: Our specialist {TECHNICIAN} is en-route for your scheduled {TREATMENT} service today at approx {TIME}. Thank you for choosing PestControl Pro! Hotline: 011-2345678',
+  template_tech_dispatch: 'PestControl: Hello {TECHNICIAN}, Job #{JOB_CODE} assigned for {CUSTOMER} on {DATE} at {TIME} ({TREATMENT} @ {LOCATION}). Tap link to open your mobile work panel & start work: {LINK}',
+  template_completion: 'PestControl Pro: Your {TREATMENT} service has been completed successfully today. Thank you for partnering with PestControl Pro. Support: 011-2345678',
+  custom_note: ''
+};
+
 /**
  * Get current SMS Gateway settings from database
  */
 function getSmsSettings() {
-  const settings = db.prepare('SELECT * FROM sms_settings WHERE id = 1').get();
+  let settings = db.prepare('SELECT * FROM sms_settings WHERE id = 1').get();
   if (!settings) {
     db.prepare(`
       INSERT INTO sms_settings (id, provider, api_key, user_id, sender_id, is_simulation, is_active)
       VALUES (1, 'NOTIFY_LK', '', '', 'PESTCONTROL', 1, 1)
     `).run();
-    return db.prepare('SELECT * FROM sms_settings WHERE id = 1').get();
+    settings = db.prepare('SELECT * FROM sms_settings WHERE id = 1').get();
   }
-  return settings;
+  return {
+    ...settings,
+    template_24h: (settings.template_24h && settings.template_24h.trim()) ? settings.template_24h : DEFAULT_SMS_TEMPLATES.template_24h,
+    template_arrival: (settings.template_arrival && settings.template_arrival.trim()) ? settings.template_arrival : DEFAULT_SMS_TEMPLATES.template_arrival,
+    template_tech_dispatch: (settings.template_tech_dispatch && settings.template_tech_dispatch.trim()) ? settings.template_tech_dispatch : DEFAULT_SMS_TEMPLATES.template_tech_dispatch,
+    template_completion: (settings.template_completion && settings.template_completion.trim()) ? settings.template_completion : DEFAULT_SMS_TEMPLATES.template_completion,
+    custom_note: settings.custom_note || ''
+  };
 }
 
 /**
- * Update SMS Gateway settings
- */
-/**
- * Update SMS Gateway settings
+ * Update SMS Gateway settings (including optional custom wording templates)
  */
 function updateSmsSettings(data) {
+  const current = getSmsSettings();
   let {
-    provider = 'TEXT_LK',
-    api_key = '',
-    api_token = '',
-    user_id = '',
-    sender_id = 'TextLKDemo',
-    password = '',
-    endpoint_url = '',
-    system_url = '',
-    is_simulation = 1,
-    is_active = 1
+    provider = current.provider || 'TEXT_LK',
+    api_key = current.api_key || '',
+    api_token = current.api_token || '',
+    user_id = current.user_id || '',
+    sender_id = current.sender_id || 'TextLKDemo',
+    password = current.password || '',
+    endpoint_url = current.endpoint_url || '',
+    system_url = current.system_url || '',
+    template_24h = current.template_24h,
+    template_arrival = current.template_arrival,
+    template_tech_dispatch = current.template_tech_dispatch,
+    template_completion = current.template_completion,
+    custom_note = current.custom_note,
+    is_simulation = current.is_simulation ?? 1,
+    is_active = current.is_active ?? 1
   } = data;
 
   api_key = String(api_key || '').trim();
@@ -133,7 +151,9 @@ function updateSmsSettings(data) {
   db.prepare(`
     UPDATE sms_settings
     SET provider = ?, api_key = ?, api_token = ?, user_id = ?, sender_id = ?,
-        password = ?, endpoint_url = ?, system_url = ?, is_simulation = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+        password = ?, endpoint_url = ?, system_url = ?,
+        template_24h = ?, template_arrival = ?, template_tech_dispatch = ?, template_completion = ?, custom_note = ?,
+        is_simulation = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = 1
   `).run(
     provider,
@@ -144,8 +164,39 @@ function updateSmsSettings(data) {
     password,
     endpoint_url,
     system_url,
+    String(template_24h ?? '').trim(),
+    String(template_arrival ?? '').trim(),
+    String(template_tech_dispatch ?? '').trim(),
+    String(template_completion ?? '').trim(),
+    String(custom_note ?? '').trim(),
     Number(is_simulation),
     Number(is_active)
+  );
+
+  return getSmsSettings();
+}
+
+/**
+ * Update only custom SMS wording templates in database
+ */
+function updateSmsTemplates(data) {
+  const current = getSmsSettings();
+  const template_24h = data.template_24h !== undefined ? String(data.template_24h).trim() : current.template_24h;
+  const template_arrival = data.template_arrival !== undefined ? String(data.template_arrival).trim() : current.template_arrival;
+  const template_tech_dispatch = data.template_tech_dispatch !== undefined ? String(data.template_tech_dispatch).trim() : current.template_tech_dispatch;
+  const template_completion = data.template_completion !== undefined ? String(data.template_completion).trim() : current.template_completion;
+  const custom_note = data.custom_note !== undefined ? String(data.custom_note).trim() : current.custom_note;
+
+  db.prepare(`
+    UPDATE sms_settings
+    SET template_24h = ?, template_arrival = ?, template_tech_dispatch = ?, template_completion = ?, custom_note = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = 1
+  `).run(
+    template_24h || DEFAULT_SMS_TEMPLATES.template_24h,
+    template_arrival || DEFAULT_SMS_TEMPLATES.template_arrival,
+    template_tech_dispatch || DEFAULT_SMS_TEMPLATES.template_tech_dispatch,
+    template_completion || DEFAULT_SMS_TEMPLATES.template_completion,
+    custom_note
   );
 
   return getSmsSettings();
@@ -601,54 +652,93 @@ function resolveSystemBaseUrl(customBaseUrl) {
 }
 
 /**
- * Message template generators for pest control operational workflows
+ * Render an SMS template string with job variables and optional custom note
  */
-function build24hReminderMessage(job, customBaseUrl) {
+function renderSmsTemplate(templateStr, job = {}, customBaseUrl = null, isTechLink = false, extraCustomNote = '') {
+  const settings = getSmsSettings();
   const baseUrl = resolveSystemBaseUrl(customBaseUrl);
-  const clientName = job.contact_person || job.customer_name || 'Valued Customer';
-  const treatment = job.treatment_code || 'Pest Control';
-  const date = job.scheduled_date;
+  const clientName = job.customer_name || job.contact_person || 'Valued Customer';
+  const contactPerson = job.contact_person || job.customer_name || 'Valued Customer';
+  const treatment = job.treatment_code || job.treatment_name || 'Pest Control';
+  const date = job.scheduled_date || 'Tomorrow';
   const time = job.scheduled_time || '09:00 AM';
   const tech = job.technician_name || 'Field Specialist';
-  const loc = job.location_name || 'your premises';
+  const loc = job.location_name || job.location_address || 'your premises';
+  const jobCode = job.job_code || `JOB-${job.id || ''}`;
+  const link = isTechLink
+    ? `${baseUrl}/tech?job=${job.id || ''}`
+    : `${baseUrl}/confirmations/${jobCode}`;
 
-  return `PestControl Pro: Reminder that your ${treatment} service is scheduled for tomorrow ${date} at ${time} (${loc}). Specialist: ${tech}. To confirm or reschedule: ${baseUrl}/confirmations/${job.job_code} or Call 011-2345678`;
+  let text = String(templateStr || '')
+    .replace(/\{CUSTOMER\}/gi, clientName)
+    .replace(/\{CLIENT\}/gi, contactPerson)
+    .replace(/\{TREATMENT\}/gi, treatment)
+    .replace(/\{DATE\}/gi, date)
+    .replace(/\{TIME\}/gi, time)
+    .replace(/\{TECHNICIAN\}/gi, tech)
+    .replace(/\{TECH\}/gi, tech)
+    .replace(/\{LOCATION\}/gi, loc)
+    .replace(/\{JOB_CODE\}/gi, jobCode)
+    .replace(/\{LINK\}/gi, link)
+    .replace(/\{HOTLINE\}/gi, '011-2345678');
+
+  const noteToAppend = (extraCustomNote !== undefined && extraCustomNote !== null && String(extraCustomNote).trim())
+    ? String(extraCustomNote).trim()
+    : (settings.custom_note ? String(settings.custom_note).trim() : '');
+
+  if (text.includes('{CUSTOM_NOTE}')) {
+    text = text.replace(/\{CUSTOM_NOTE\}/gi, noteToAppend);
+  } else if (noteToAppend && !text.includes(noteToAppend)) {
+    text = `${text} | ${noteToAppend}`;
+  }
+
+  return text.trim();
 }
 
-function buildArrivalReminderMessage(job) {
-  const clientName = job.contact_person || job.customer_name || 'Valued Customer';
-  const tech = job.technician_name || 'on duty';
-  const treatment = job.treatment_code || 'Pest Control';
-  const time = job.scheduled_time || 'today';
-
-  return `PestControl Pro: Our specialist ${tech} is en-route for your scheduled ${treatment} service today at approx ${time}. Thank you for choosing PestControl Pro! Hotline: 011-2345678`;
+/**
+ * Message template generators for pest control operational workflows
+ */
+function build24hReminderMessage(job, customBaseUrl, customTemplate = null, extraCustomNote = '') {
+  const settings = getSmsSettings();
+  const tpl = (customTemplate && String(customTemplate).trim())
+    ? String(customTemplate).trim()
+    : (settings.template_24h || DEFAULT_SMS_TEMPLATES.template_24h);
+  return renderSmsTemplate(tpl, job, customBaseUrl, false, extraCustomNote);
 }
 
-function buildJobCompletionMessage(job) {
-  const clientName = job.contact_person || job.customer_name || 'Customer';
-  const treatment = job.treatment_code || 'Pest Control';
-  return `PestControl Pro: Your ${treatment} service has been completed successfully today. Thank you for partnering with PestControl Pro. Support: 011-2345678`;
+function buildArrivalReminderMessage(job, customBaseUrl, customTemplate = null, extraCustomNote = '') {
+  const settings = getSmsSettings();
+  const tpl = (customTemplate && String(customTemplate).trim())
+    ? String(customTemplate).trim()
+    : (settings.template_arrival || DEFAULT_SMS_TEMPLATES.template_arrival);
+  return renderSmsTemplate(tpl, job, customBaseUrl, false, extraCustomNote);
 }
 
-function buildTechDispatchMessage(job, customBaseUrl) {
-  const baseUrl = resolveSystemBaseUrl(customBaseUrl);
-  const techName = job.technician_name || 'Specialist';
-  const customerName = job.customer_name || 'Client';
-  const treatment = job.treatment_code || 'Service';
-  const date = job.scheduled_date || 'Today';
-  const time = job.scheduled_time || '09:00';
-  const loc = job.location_name || job.location_address || 'Premises';
-  const jobUrl = `${baseUrl}/tech?job=${job.id}`;
+function buildJobCompletionMessage(job, customBaseUrl, customTemplate = null, extraCustomNote = '') {
+  const settings = getSmsSettings();
+  const tpl = (customTemplate && String(customTemplate).trim())
+    ? String(customTemplate).trim()
+    : (settings.template_completion || DEFAULT_SMS_TEMPLATES.template_completion);
+  return renderSmsTemplate(tpl, job, customBaseUrl, false, extraCustomNote);
+}
 
-  return `PestControl: Hello ${techName}, Job #${job.job_code} assigned for ${customerName} on ${date} at ${time} (${treatment} @ ${loc}). Tap link to open your mobile work panel & start work: ${jobUrl}`;
+function buildTechDispatchMessage(job, customBaseUrl, customTemplate = null, extraCustomNote = '') {
+  const settings = getSmsSettings();
+  const tpl = (customTemplate && String(customTemplate).trim())
+    ? String(customTemplate).trim()
+    : (settings.template_tech_dispatch || DEFAULT_SMS_TEMPLATES.template_tech_dispatch);
+  return renderSmsTemplate(tpl, job, customBaseUrl, true, extraCustomNote);
 }
 
 module.exports = {
   OPERATOR_PREFIXES,
+  DEFAULT_SMS_TEMPLATES,
   normalizeSriLankaPhone,
   getSmsSettings,
   updateSmsSettings,
+  updateSmsTemplates,
   sendSMS,
+  renderSmsTemplate,
   build24hReminderMessage,
   buildArrivalReminderMessage,
   buildJobCompletionMessage,

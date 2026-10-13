@@ -4,11 +4,15 @@ const crypto = require('crypto');
 const { supabase, hashPassword, generateSalt, verifyUserPassword } = require('../lib/supabase');
 const {
   AVAILABLE_PROVIDERS,
+  DEFAULT_SMS_TEMPLATES,
   normalizeSriLankaPhone,
   getSmsSettings,
+  saveSmsTemplates,
   sendSMS,
+  renderSmsTemplate,
   build24hReminderMessage,
   buildArrivalReminderMessage,
+  buildJobCompletionMessage,
   buildTechDispatchMessage
 } = require('../lib/sms');
 const {
@@ -1606,6 +1610,8 @@ app.get('/reminders/queue', async (req, res) => {
     const tomorrow = tomorrowObj.toISOString().split('T')[0];
     const systemUrl = req.headers.origin || 'https://one-pest.vercel.app';
 
+    const smsSettings = await getSmsSettings();
+
     const { data: allJobs, error: jErr } = await supabase
       .from('jobs')
       .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
@@ -1618,10 +1624,11 @@ app.get('/reminders/queue', async (req, res) => {
     const decorateWithSms = (j) => {
       const norm = normalizeSriLankaPhone(j.customer_phone);
       const isTomorrow = j.scheduled_date === tomorrow;
-      const smsMsg = isTomorrow ? build24hReminderMessage(j, systemUrl) : buildArrivalReminderMessage(j);
+      const smsMsg = isTomorrow ? build24hReminderMessage(j, systemUrl) : buildArrivalReminderMessage(j, systemUrl);
       return {
         ...j,
         has_valid_phone: Boolean(norm.isValid),
+        sms_is_valid: Boolean(norm.isValid),
         sms_phone: norm.normalized || j.customer_phone || '',
         sms_formatted: norm.nationalFormat || j.customer_phone || '',
         sms_operator: norm.operator || '',
@@ -1670,8 +1677,6 @@ app.get('/reminders/queue', async (req, res) => {
       };
     });
 
-    const smsSettings = await getSmsSettings();
-
     // Fetch recent SMS logs for audit
     const { data: recentLogs } = await supabase
       .from('sms_logs')
@@ -1694,7 +1699,8 @@ app.get('/reminders/queue', async (req, res) => {
         active_technicians: techniciansRoutes.length,
         overdue_followups: overdueJobs.length
       },
-      sms_settings: smsSettings
+      sms_settings: smsSettings,
+      default_templates: DEFAULT_SMS_TEMPLATES
     });
   } catch (err) {
     console.error('[Reminders Queue Error]:', err);
@@ -1890,6 +1896,7 @@ app.get('/sms/settings', async (req, res) => {
     return res.json({
       success: true,
       settings,
+      default_templates: DEFAULT_SMS_TEMPLATES,
       providers: AVAILABLE_PROVIDERS,
       stats
     });
@@ -1901,21 +1908,102 @@ app.get('/sms/settings', async (req, res) => {
 
 app.post('/sms/settings', async (req, res) => {
   try {
+    const {
+      template_24h,
+      template_arrival,
+      template_tech_dispatch,
+      template_completion,
+      custom_note,
+      ...gatewayFields
+    } = req.body || {};
+
+    if (template_24h !== undefined || template_arrival !== undefined || template_tech_dispatch !== undefined || template_completion !== undefined || custom_note !== undefined) {
+      await saveSmsTemplates({ template_24h, template_arrival, template_tech_dispatch, template_completion, custom_note });
+    }
+
     const updatePayload = {
       id: 1,
-      ...req.body,
+      ...gatewayFields,
       updated_at: new Date().toISOString()
     };
-    const { data, error } = await supabase
+    await supabase
       .from('sms_settings')
-      .upsert(updatePayload)
-      .select()
-      .single();
+      .upsert(updatePayload);
 
-    if (error) throw error;
-    return res.json({ success: true, settings: data });
+    const updatedSettings = await getSmsSettings();
+    return res.json({ success: true, message: 'SMS Gateway settings & custom wording updated successfully', settings: updatedSettings });
   } catch (err) {
     console.error('[SMS Settings Save Error]:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/sms/templates', async (req, res) => {
+  try {
+    const settings = await getSmsSettings();
+    return res.json({
+      success: true,
+      templates: {
+        template_24h: settings.template_24h,
+        template_arrival: settings.template_arrival,
+        template_tech_dispatch: settings.template_tech_dispatch,
+        template_completion: settings.template_completion,
+        custom_note: settings.custom_note || ''
+      },
+      default_templates: DEFAULT_SMS_TEMPLATES
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/sms/templates', async (req, res) => {
+  try {
+    const templates = await saveSmsTemplates(req.body || {});
+    const settings = await getSmsSettings();
+    return res.json({
+      success: true,
+      message: 'Custom SMS wording & templates saved to backend successfully!',
+      templates,
+      settings
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/sms/send-custom', async (req, res) => {
+  try {
+    const { phone, to, message, recipient_name, job_id = null } = req.body || {};
+    const targetPhone = String(phone || to || '').trim();
+    const customMsg = String(message || '').trim();
+
+    if (!targetPhone) {
+      return res.status(400).json({ success: false, error: 'Recipient phone number is required' });
+    }
+    if (!customMsg) {
+      return res.status(400).json({ success: false, error: 'Message content is required' });
+    }
+
+    const result = await sendSMS({
+      to: targetPhone,
+      message: customMsg,
+      jobId: job_id || null,
+      recipientName: recipient_name || 'Customer'
+    });
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    return res.json({
+      success: true,
+      message: result.simulated
+        ? `Simulated custom SMS recorded for ${recipient_name || result.formattedPhone || targetPhone}`
+        : `Custom SMS notice dispatched to ${recipient_name || result.formattedPhone || targetPhone}`,
+      details: result
+    });
+  } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -1952,10 +2040,19 @@ app.post('/sms/send-test', async (req, res) => {
 
 app.post('/sms/send-job-reminder', async (req, res) => {
   try {
-    const { job_id, reminder_type = '24H', phone: overridePhone, message: overrideMsg } = req.body || {};
+    const {
+      job_id,
+      reminder_type = '24H',
+      phone: overridePhone,
+      message: overrideMsg,
+      custom_message,
+      custom_note = ''
+    } = req.body || {};
     if (!job_id) {
       return res.status(400).json({ success: false, error: 'job_id is required' });
     }
+
+    await getSmsSettings();
 
     const { data: jobRaw, error: jErr } = await supabase
       .from('jobs')
@@ -1974,9 +2071,14 @@ app.post('/sms/send-job-reminder', async (req, res) => {
     }
 
     const systemUrl = req.headers.origin || 'https://one-pest.vercel.app';
-    const message = overrideMsg || (reminder_type === 'ARRIVAL'
-      ? buildArrivalReminderMessage(job)
-      : build24hReminderMessage(job, systemUrl));
+    const userCustomText = String(overrideMsg || custom_message || '').trim();
+    const message = userCustomText
+      ? renderSmsTemplate(userCustomText, job, systemUrl, false, custom_note)
+      : (reminder_type === 'ARRIVAL'
+        ? buildArrivalReminderMessage(job, systemUrl, null, custom_note)
+        : reminder_type === 'COMPLETION'
+        ? buildJobCompletionMessage(job, systemUrl, null, custom_note)
+        : build24hReminderMessage(job, systemUrl, null, custom_note));
 
     const result = await sendSMS({
       to: targetPhone,
@@ -1988,6 +2090,7 @@ app.post('/sms/send-job-reminder', async (req, res) => {
     return res.json({
       success: result.success,
       message: result.message || (result.success ? `SMS reminder sent to ${result.formattedPhone || targetPhone}` : result.error),
+      messageText: message,
       ...result
     });
   } catch (err) {
@@ -1998,10 +2101,12 @@ app.post('/sms/send-job-reminder', async (req, res) => {
 
 app.post('/sms/send-tech-dispatch', async (req, res) => {
   try {
-    const { job_id, technician_id, technician_phone, technician_name, message } = req.body || {};
-    let targetPhone = technician_phone;
+    const { job_id, technician_id, technician_phone, phone, technician_name, message, custom_message, custom_note = '' } = req.body || {};
+    let targetPhone = technician_phone || phone;
     let targetName = technician_name;
-    let smsMsg = message;
+    let smsMsg = String(message || custom_message || '').trim();
+
+    await getSmsSettings();
 
     if (job_id) {
       const { data: jobRaw } = await supabase
@@ -2014,9 +2119,11 @@ app.post('/sms/send-tech-dispatch', async (req, res) => {
         const job = formatJob(jobRaw);
         if (!targetPhone) targetPhone = job.technician_phone;
         if (!targetName) targetName = job.technician_name;
-        if (!smsMsg) {
-          const systemUrl = req.headers.origin || 'https://one-pest.vercel.app';
-          smsMsg = buildTechDispatchMessage(job, systemUrl);
+        const systemUrl = req.headers.origin || 'https://one-pest.vercel.app';
+        if (smsMsg) {
+          smsMsg = renderSmsTemplate(smsMsg, { ...job, technician_name: targetName || job.technician_name }, systemUrl, true, custom_note);
+        } else {
+          smsMsg = buildTechDispatchMessage(job, systemUrl, null, custom_note);
         }
       }
     } else if (technician_id) {
@@ -2045,6 +2152,7 @@ app.post('/sms/send-tech-dispatch', async (req, res) => {
     return res.json({
       success: result.success,
       message: result.message || (result.success ? `Dispatch SMS sent to ${targetName || targetPhone}` : result.error),
+      messageText: smsMsg,
       ...result
     });
   } catch (err) {
@@ -2055,9 +2163,18 @@ app.post('/sms/send-tech-dispatch', async (req, res) => {
 
 app.post('/sms/bulk-send', async (req, res) => {
   try {
-    const { date, reminder_type = '24H', job_ids = null } = req.body || {};
+    const {
+      date,
+      reminder_type = '24H',
+      job_ids = null,
+      custom_template = null,
+      custom_message = null,
+      custom_note = ''
+    } = req.body || {};
     const targetDate = date || getColomboDate();
     const systemUrl = req.headers.origin || 'https://one-pest.vercel.app';
+
+    await getSmsSettings();
 
     let query = supabase
       .from('jobs')
@@ -2081,6 +2198,8 @@ app.post('/sms/bulk-send', async (req, res) => {
       });
     }
 
+    const templateOverride = String(custom_template || custom_message || '').trim() || null;
+
     const summary = { total: jobs.length, sent: 0, simulated: 0, skipped: 0, failed: 0 };
     const results = [];
 
@@ -2101,8 +2220,8 @@ app.post('/sms/bulk-send', async (req, res) => {
       }
 
       const msg = reminder_type === 'ARRIVAL'
-        ? buildArrivalReminderMessage(job)
-        : build24hReminderMessage(job, systemUrl);
+        ? buildArrivalReminderMessage(job, systemUrl, templateOverride, custom_note)
+        : build24hReminderMessage(job, systemUrl, templateOverride, custom_note);
 
       const resSms = await sendSMS({
         to: norm.normalized,
@@ -2117,6 +2236,7 @@ app.post('/sms/bulk-send', async (req, res) => {
         phone: resSms.formattedPhone || norm.nationalFormat,
         status: resSms.success ? (resSms.simulated ? 'SIMULATED' : 'SENT') : 'FAILED',
         messageId: resSms.messageId,
+        messageText: msg,
         error: resSms.error
       });
 

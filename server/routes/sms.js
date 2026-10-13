@@ -2,12 +2,16 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const {
+  DEFAULT_SMS_TEMPLATES,
   getSmsSettings,
   updateSmsSettings,
+  updateSmsTemplates,
   normalizeSriLankaPhone,
   sendSMS,
+  renderSmsTemplate,
   build24hReminderMessage,
   buildArrivalReminderMessage,
+  buildJobCompletionMessage,
   buildTechDispatchMessage
 } = require('../services/smsGateway');
 const { formatDateColombo } = require('../services/recurringEngine');
@@ -101,6 +105,7 @@ router.get('/settings', (req, res) => {
     res.json({
       success: true,
       settings,
+      default_templates: DEFAULT_SMS_TEMPLATES,
       providers: AVAILABLE_PROVIDERS,
       stats: {
         total_dispatched: stats.total_dispatched || 0,
@@ -121,8 +126,86 @@ router.post('/settings', (req, res) => {
     const updated = updateSmsSettings(req.body);
     res.json({
       success: true,
-      message: 'SMS Gateway settings updated successfully',
+      message: 'SMS Gateway settings & custom wording updated successfully',
       settings: updated
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET Custom SMS Wording Templates
+router.get('/templates', (req, res) => {
+  try {
+    const settings = getSmsSettings();
+    res.json({
+      success: true,
+      templates: {
+        template_24h: settings.template_24h,
+        template_arrival: settings.template_arrival,
+        template_tech_dispatch: settings.template_tech_dispatch,
+        template_completion: settings.template_completion,
+        custom_note: settings.custom_note || ''
+      },
+      default_templates: DEFAULT_SMS_TEMPLATES
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST Save Custom SMS Wording Templates to Backend
+router.post('/templates', (req, res) => {
+  try {
+    const updated = updateSmsTemplates(req.body || {});
+    res.json({
+      success: true,
+      message: 'Custom SMS wording & templates saved to backend successfully!',
+      templates: {
+        template_24h: updated.template_24h,
+        template_arrival: updated.template_arrival,
+        template_tech_dispatch: updated.template_tech_dispatch,
+        template_completion: updated.template_completion,
+        custom_note: updated.custom_note || ''
+      },
+      settings: updated
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST Send Custom SMS Notice to Any Phone / Customer
+router.post('/send-custom', async (req, res) => {
+  const { phone, to, message, recipient_name, job_id = null } = req.body || {};
+  const targetPhone = String(phone || to || '').trim();
+  const customMsg = String(message || '').trim();
+
+  if (!targetPhone) {
+    return res.status(400).json({ success: false, error: 'Recipient phone number is required' });
+  }
+  if (!customMsg) {
+    return res.status(400).json({ success: false, error: 'Message content is required' });
+  }
+
+  try {
+    const result = await sendSMS({
+      to: targetPhone,
+      message: customMsg,
+      jobId: job_id || null,
+      recipientName: recipient_name || 'Customer'
+    });
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    res.json({
+      success: true,
+      message: result.simulated
+        ? `Simulated custom SMS recorded for ${recipient_name || result.formattedPhone || targetPhone}`
+        : `Custom SMS notice dispatched to ${recipient_name || result.formattedPhone || targetPhone}`,
+      details: result
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -163,9 +246,16 @@ router.post('/send-test', async (req, res) => {
   });
 });
 
-// POST Send Reminder for a specific Job
+// POST Send Reminder for a specific Job (respects custom phone & custom Message Content)
 router.post('/send-job-reminder', async (req, res) => {
-  const { job_id, reminder_type = '24H' } = req.body; // '24H' or 'ARRIVAL' or 'CUSTOM'
+  const {
+    job_id,
+    reminder_type = '24H',
+    phone,
+    message,
+    custom_message,
+    custom_note = ''
+  } = req.body || {};
 
   if (!job_id) {
     return res.status(400).json({ success: false, error: 'job_id is required' });
@@ -189,19 +279,26 @@ router.post('/send-job-reminder', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Job not found' });
     }
 
-    if (!job.customer_phone) {
+    const recipientPhone = (phone && String(phone).trim()) ? String(phone).trim() : job.customer_phone;
+    if (!recipientPhone) {
       return res.status(400).json({ success: false, error: 'Customer has no phone number on record' });
     }
 
+    const userCustomText = String(message || custom_message || '').trim();
     let messageText;
-    if (reminder_type === 'ARRIVAL') {
-      messageText = buildArrivalReminderMessage(job);
+    if (userCustomText) {
+      // Render any placeholders if user included them in their custom Message Content
+      messageText = renderSmsTemplate(userCustomText, job, null, false, custom_note);
+    } else if (reminder_type === 'ARRIVAL') {
+      messageText = buildArrivalReminderMessage(job, null, null, custom_note);
+    } else if (reminder_type === 'COMPLETION') {
+      messageText = buildJobCompletionMessage(job, null, null, custom_note);
     } else {
-      messageText = build24hReminderMessage(job);
+      messageText = build24hReminderMessage(job, null, null, custom_note);
     }
 
     const result = await sendSMS({
-      to: job.customer_phone,
+      to: recipientPhone,
       message: messageText,
       jobId: job.id,
       recipientName: job.customer_name
@@ -216,6 +313,7 @@ router.post('/send-job-reminder', async (req, res) => {
       message: result.simulated
         ? `Simulated SMS reminder logged for ${job.customer_name}`
         : `SMS reminder dispatched to ${job.customer_name}`,
+      messageText,
       details: result
     });
   } catch (err) {
@@ -223,54 +321,116 @@ router.post('/send-job-reminder', async (req, res) => {
   }
 });
 
-// POST Send Job Start Link & SMS Dispatch to Technician
+// POST Send Job Start Link & SMS Dispatch to Technician (supports single job OR daily route SMS)
 router.post('/send-tech-dispatch', async (req, res) => {
-  const { job_id, technician_phone, technician_name, custom_base_url } = req.body;
-
-  if (!job_id) {
-    return res.status(400).json({ success: false, error: 'job_id is required' });
-  }
+  const {
+    job_id,
+    technician_id,
+    technician_phone,
+    phone,
+    technician_name,
+    message,
+    custom_message,
+    custom_note = '',
+    custom_base_url
+  } = req.body || {};
 
   try {
-    const job = db.prepare(`
-      SELECT j.*, c.name as customer_name, c.phone as customer_phone, c.contact_person,
-             l.location_name, l.address as location_address,
-             t.code as treatment_code, t.name as treatment_name,
-             tech.full_name as technician_name, tech.phone as technician_phone
-      FROM jobs j
-      JOIN customers c ON j.customer_id = c.id
-      LEFT JOIN customer_locations l ON j.location_id = l.id
-      JOIN treatments t ON j.treatment_id = t.id
-      LEFT JOIN staff tech ON j.technician_id = tech.id
-      WHERE j.id = ?
-    `).get(job_id);
+    const settings = getSmsSettings();
+    const baseUrl = (custom_base_url || settings.system_url || 'http://localhost:5000').replace(/\/$/, '');
+    const userCustomText = String(message || custom_message || '').trim();
 
-    if (!job) {
-      return res.status(404).json({ success: false, error: 'Job not found' });
-    }
+    // Case 1: Single Job Dispatch when job_id is provided
+    if (job_id) {
+      const job = db.prepare(`
+        SELECT j.*, c.name as customer_name, c.phone as customer_phone, c.contact_person,
+               l.location_name, l.address as location_address,
+               t.code as treatment_code, t.name as treatment_name,
+               tech.full_name as technician_name, tech.phone as technician_phone
+        FROM jobs j
+        JOIN customers c ON j.customer_id = c.id
+        LEFT JOIN customer_locations l ON j.location_id = l.id
+        JOIN treatments t ON j.treatment_id = t.id
+        LEFT JOIN staff tech ON j.technician_id = tech.id
+        WHERE j.id = ?
+      `).get(job_id);
 
-    const recipientPhone = technician_phone || job.technician_phone;
-    if (!recipientPhone) {
-      return res.status(400).json({
-        success: false,
-        error: 'No phone number provided or registered for the assigned technician'
+      if (!job) {
+        return res.status(404).json({ success: false, error: 'Job not found' });
+      }
+
+      const recipientPhone = String(technician_phone || phone || job.technician_phone || '').trim();
+      if (!recipientPhone) {
+        return res.status(400).json({
+          success: false,
+          error: 'No phone number provided or registered for the assigned technician'
+        });
+      }
+
+      const techRecipientName = technician_name || job.technician_name || 'Technician';
+      const jobUrl = `${baseUrl}/tech?job=${job.id}`;
+
+      const messageText = userCustomText
+        ? renderSmsTemplate(userCustomText, { ...job, technician_name: techRecipientName }, baseUrl, true, custom_note)
+        : buildTechDispatchMessage({ ...job, technician_name: techRecipientName }, baseUrl, null, custom_note);
+
+      const result = await sendSMS({
+        to: recipientPhone,
+        message: messageText,
+        jobId: job.id,
+        recipientName: techRecipientName
+      });
+
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+
+      return res.json({
+        success: true,
+        message: result.simulated
+          ? `Simulated Technician SMS dispatch logged for ${techRecipientName} (${result.formattedPhone || recipientPhone})`
+          : `Job start link SMS sent to ${techRecipientName} (${result.formattedPhone || recipientPhone})`,
+        jobUrl,
+        recipientPhone,
+        recipientName: techRecipientName,
+        messageText,
+        details: result
       });
     }
 
-    const techRecipientName = technician_name || job.technician_name || 'Technician';
-    const settings = getSmsSettings();
-    const baseUrl = (custom_base_url || settings.system_url || 'http://localhost:5000').replace(/\/$/, '');
-    const jobUrl = `${baseUrl}/tech?job=${job.id}`;
+    // Case 2: Daily Route SMS Dispatch to Technician (when technician_id or technician_phone is provided without job_id)
+    let tech = null;
+    if (technician_id) {
+      tech = db.prepare('SELECT * FROM staff WHERE id = ?').get(technician_id);
+    }
+    const recipientPhone = String(technician_phone || phone || (tech && tech.phone) || '').trim();
+    if (!recipientPhone) {
+      return res.status(400).json({
+        success: false,
+        error: 'Recipient phone number is required for technician dispatch'
+      });
+    }
 
-    const messageText = buildTechDispatchMessage({
-      ...job,
-      technician_name: techRecipientName
-    }, baseUrl);
+    const techRecipientName = technician_name || (tech && tech.full_name) || 'Technician';
+    const today = formatDateColombo(new Date());
+    let messageText = userCustomText;
+
+    if (!messageText) {
+      let jobCount = 0;
+      if (tech) {
+        const row = db.prepare(`SELECT COUNT(*) as cnt FROM jobs WHERE technician_id = ? AND scheduled_date = ? AND status != 'CANCELLED'`).get(tech.id, today);
+        jobCount = row ? row.cnt : 0;
+      }
+      messageText = `PestControl Pro: Good morning ${techRecipientName}, you have ${jobCount || 'scheduled'} service job(s) assigned for today (${today}). Open your mobile work panel to view route & start jobs: ${baseUrl}/tech`;
+      if (custom_note && String(custom_note).trim()) {
+        messageText += ` | ${String(custom_note).trim()}`;
+      }
+    }
 
     const result = await sendSMS({
       to: recipientPhone,
       message: messageText,
-      jobId: job.id,
+      jobId: null,
       recipientName: techRecipientName
     });
 
@@ -278,12 +438,11 @@ router.post('/send-tech-dispatch', async (req, res) => {
       return res.status(400).json(result);
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: result.simulated
-        ? `Simulated Technician SMS dispatch logged for ${techRecipientName} (${result.formattedPhone || recipientPhone})`
-        : `Job start link SMS sent to ${techRecipientName} (${result.formattedPhone || recipientPhone})`,
-      jobUrl,
+        ? `Simulated Technician Route SMS logged for ${techRecipientName} (${result.formattedPhone || recipientPhone})`
+        : `Technician Route SMS dispatched to ${techRecipientName} (${result.formattedPhone || recipientPhone})`,
       recipientPhone,
       recipientName: techRecipientName,
       messageText,
@@ -294,9 +453,16 @@ router.post('/send-tech-dispatch', async (req, res) => {
   }
 });
 
-// POST Bulk Send Reminders (e.g. all tomorrow's upcoming jobs)
+// POST Bulk Send Reminders (supports custom_template / custom_message / custom_note)
 router.post('/bulk-send', async (req, res) => {
-  const { date, reminder_type = '24H', job_ids = null } = req.body;
+  const {
+    date,
+    reminder_type = '24H',
+    job_ids = null,
+    custom_template = null,
+    custom_message = null,
+    custom_note = ''
+  } = req.body || {};
 
   try {
     let jobsToRemind = [];
@@ -305,8 +471,8 @@ router.post('/bulk-send', async (req, res) => {
       const placeholders = job_ids.map(() => '?').join(',');
       jobsToRemind = db.prepare(`
         SELECT j.*, c.name as customer_name, c.phone as customer_phone, c.contact_person,
-               l.location_name,
-               t.code as treatment_code,
+               l.location_name, l.address as location_address,
+               t.code as treatment_code, t.name as treatment_name,
                tech.full_name as technician_name
         FROM jobs j
         JOIN customers c ON j.customer_id = c.id
@@ -326,8 +492,8 @@ router.post('/bulk-send', async (req, res) => {
 
       jobsToRemind = db.prepare(`
         SELECT j.*, c.name as customer_name, c.phone as customer_phone, c.contact_person,
-               l.location_name,
-               t.code as treatment_code,
+               l.location_name, l.address as location_address,
+               t.code as treatment_code, t.name as treatment_name,
                tech.full_name as technician_name
         FROM jobs j
         JOIN customers c ON j.customer_id = c.id
@@ -345,6 +511,8 @@ router.post('/bulk-send', async (req, res) => {
         summary: { total: 0, sent: 0, simulated: 0, failed: 0 }
       });
     }
+
+    const templateOverride = String(custom_template || custom_message || '').trim() || null;
 
     const summary = {
       total: jobsToRemind.length,
@@ -367,8 +535,8 @@ router.post('/bulk-send', async (req, res) => {
       }
 
       const messageText = reminder_type === 'ARRIVAL'
-        ? buildArrivalReminderMessage(job)
-        : build24hReminderMessage(job);
+        ? buildArrivalReminderMessage(job, null, templateOverride, custom_note)
+        : build24hReminderMessage(job, null, templateOverride, custom_note);
 
       const resSMS = await sendSMS({
         to: job.customer_phone,
@@ -388,7 +556,8 @@ router.post('/bulk-send', async (req, res) => {
           customer: job.customer_name,
           phone: resSMS.phone,
           status: resSMS.simulated ? 'SIMULATED' : 'SENT',
-          messageId: resSMS.messageId
+          messageId: resSMS.messageId,
+          messageText
         });
       } else {
         summary.failed++;

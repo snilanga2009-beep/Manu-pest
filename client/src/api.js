@@ -132,6 +132,9 @@ export const logReminderSent = (data) => fetchJson('/reminders/log-sent', { meth
 // Sri Lanka SMS Gateways
 export const getSmsSettings = () => fetchJson('/sms/settings');
 export const updateSmsSettings = (data) => fetchJson('/sms/settings', { method: 'POST', body: data });
+export const getSmsTemplates = () => fetchJson('/sms/templates');
+export const saveSmsTemplates = (data) => fetchJson('/sms/templates', { method: 'POST', body: data });
+export const sendCustomSms = (data) => fetchJson('/sms/send-custom', { method: 'POST', body: data });
 export const validatePhone = (phone) => fetchJson('/sms/validate-phone', { method: 'POST', body: { phone } });
 export const sendTestSms = (to, message) => fetchJson('/sms/send-test', { method: 'POST', body: { to, message } });
 export const sendJobSmsReminder = (jobId, reminderType = '24H', overrides = {}) => fetchJson('/sms/send-job-reminder', { method: 'POST', body: { job_id: jobId, reminder_type: reminderType, ...overrides } });

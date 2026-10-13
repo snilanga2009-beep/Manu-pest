@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db');
 const { formatDateColombo } = require('../services/recurringEngine');
 const {
+  DEFAULT_SMS_TEMPLATES,
   getSmsSettings,
   normalizeSriLankaPhone,
   build24hReminderMessage,
@@ -104,28 +105,32 @@ router.get('/queue', (req, res) => {
     system_base_url: baseUrl,
     tomorrow_jobs: tomorrowJobs.map(j => {
       const norm = normalizeSriLankaPhone(j.customer_phone);
+      const customSmsMsg = build24hReminderMessage(j, baseUrl);
       return {
         ...j,
         whatsapp_phone: formatWhatsAppPhone(j.customer_phone),
-        whatsapp_message: `Hello ${j.contact_person || j.customer_name}, this is a reminder from PestControl Pro that your scheduled ${j.treatment_code} service is set for tomorrow, ${j.scheduled_date} at ${j.scheduled_time || '09:00 AM'} at ${j.location_name || 'your premises'}. Assigned Specialist: ${j.technician_name || 'Field Specialist'}. Reply YES to confirm or click: ${baseUrl}/confirmations/${j.job_code}`,
+        whatsapp_message: customSmsMsg,
         sms_phone: norm.isValid ? norm.normalized : null,
         sms_formatted: norm.isValid ? norm.nationalFormat : null,
         sms_operator: norm.isValid ? norm.operator : null,
         sms_is_valid: norm.isValid,
-        sms_message: build24hReminderMessage(j, baseUrl)
+        has_valid_phone: norm.isValid,
+        sms_message: customSmsMsg
       };
     }),
     today_jobs: todayJobs.map(j => {
       const norm = normalizeSriLankaPhone(j.customer_phone);
+      const customArrivalMsg = buildArrivalReminderMessage(j, baseUrl);
       return {
         ...j,
         whatsapp_phone: formatWhatsAppPhone(j.customer_phone),
-        whatsapp_message: `Good day ${j.contact_person || j.customer_name}, our pest control technician ${j.technician_name || 'on duty'} is scheduled to arrive today around ${j.scheduled_time || '09:00 AM'} for your ${j.treatment_code} treatment. Thank you for choosing PestControl Pro!`,
+        whatsapp_message: customArrivalMsg,
         sms_phone: norm.isValid ? norm.normalized : null,
         sms_formatted: norm.isValid ? norm.nationalFormat : null,
         sms_operator: norm.isValid ? norm.operator : null,
         sms_is_valid: norm.isValid,
-        sms_message: buildArrivalReminderMessage(j)
+        has_valid_phone: norm.isValid,
+        sms_message: customArrivalMsg
       };
     }),
     overdue_jobs: overdueJobs,
@@ -134,8 +139,14 @@ router.get('/queue', (req, res) => {
       provider: smsSettings.provider,
       sender_id: smsSettings.sender_id,
       is_simulation: Boolean(smsSettings.is_simulation),
-      is_active: Boolean(smsSettings.is_active)
-    }
+      is_active: Boolean(smsSettings.is_active),
+      template_24h: smsSettings.template_24h,
+      template_arrival: smsSettings.template_arrival,
+      template_tech_dispatch: smsSettings.template_tech_dispatch,
+      template_completion: smsSettings.template_completion,
+      custom_note: smsSettings.custom_note || ''
+    },
+    default_templates: DEFAULT_SMS_TEMPLATES
   });
 });
 

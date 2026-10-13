@@ -40,6 +40,11 @@ export default function SmsGatewaySettings() {
     password: '',
     endpoint_url: '',
     system_url: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5000',
+    template_24h: '',
+    template_arrival: '',
+    template_tech_dispatch: '',
+    template_completion: '',
+    custom_note: '',
     is_simulation: 1,
     is_active: 1
   });
@@ -72,6 +77,11 @@ export default function SmsGatewaySettings() {
             password: settingsRes.settings.password || '',
             endpoint_url: settingsRes.settings.endpoint_url || '',
             system_url: settingsRes.settings.system_url || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5000'),
+            template_24h: settingsRes.settings.template_24h || '',
+            template_arrival: settingsRes.settings.template_arrival || '',
+            template_tech_dispatch: settingsRes.settings.template_tech_dispatch || '',
+            template_completion: settingsRes.settings.template_completion || '',
+            custom_note: settingsRes.settings.custom_note || '',
             is_simulation: settingsRes.settings.is_simulation ? 1 : 0,
             is_active: settingsRes.settings.is_active ? 1 : 0
           });
@@ -432,6 +442,58 @@ export default function SmsGatewaySettings() {
               </span>
             </div>
 
+            {/* Custom SMS Wording & Templates Section */}
+            <div className="sm:col-span-2 pt-3 border-t border-slate-100 space-y-3">
+              <div>
+                <h3 className="font-black text-purple-950 text-xs sm:text-sm">
+                  ✏️ Custom SMS Wording & Default Message Content Templates (Saved in Backend)
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Supported dynamic variables: <code>{'{CUSTOMER}'}</code>, <code>{'{TREATMENT}'}</code>, <code>{'{DATE}'}</code>, <code>{'{TIME}'}</code>, <code>{'{LOCATION}'}</code>, <code>{'{TECHNICIAN}'}</code>, <code>{'{JOB_CODE}'}</code>, <code>{'{LINK}'}</code>, <code>{'{HOTLINE}'}</code>
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">24-Hour Reminder Notice Wording:</label>
+                  <textarea
+                    rows={3}
+                    value={formData.template_24h}
+                    onChange={(e) => setFormData({ ...formData, template_24h: e.target.value })}
+                    className="w-full p-2.5 bg-purple-50/40 rounded-xl border border-purple-200 text-xs text-slate-800 focus:outline-hidden"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Same-Day Arrival Notice Wording:</label>
+                  <textarea
+                    rows={3}
+                    value={formData.template_arrival}
+                    onChange={(e) => setFormData({ ...formData, template_arrival: e.target.value })}
+                    className="w-full p-2.5 bg-purple-50/40 rounded-xl border border-purple-200 text-xs text-slate-800 focus:outline-hidden"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Technician Job Dispatch SMS Wording:</label>
+                  <textarea
+                    rows={3}
+                    value={formData.template_tech_dispatch}
+                    onChange={(e) => setFormData({ ...formData, template_tech_dispatch: e.target.value })}
+                    className="w-full p-2.5 bg-purple-50/40 rounded-xl border border-purple-200 text-xs text-slate-800 focus:outline-hidden"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Extra Custom Note Appended to Reminders (Optional):</label>
+                  <textarea
+                    rows={3}
+                    value={formData.custom_note}
+                    onChange={(e) => setFormData({ ...formData, custom_note: e.target.value })}
+                    placeholder="e.g. Please keep pets secured during treatment."
+                    className="w-full p-2.5 bg-orange-50/40 rounded-xl border border-orange-200 text-xs text-slate-800 focus:outline-hidden"
+                  />
+                </div>
+              </div>
+            </div>
+
           </div>
 
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
@@ -441,7 +503,7 @@ export default function SmsGatewaySettings() {
               className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition"
             >
               <Shield className="w-4 h-4" />
-              <span>{saving ? 'Saving Settings...' : 'Save SMS Gateway Configuration'}</span>
+              <span>{saving ? 'Saving Settings...' : 'Save SMS Gateway & Custom Wording'}</span>
             </button>
           </div>
         </form>

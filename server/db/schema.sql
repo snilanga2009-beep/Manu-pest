@@ -155,6 +155,11 @@ CREATE TABLE IF NOT EXISTS sms_settings (
   password TEXT,
   endpoint_url TEXT,
   system_url TEXT DEFAULT '',
+  template_24h TEXT DEFAULT '',
+  template_arrival TEXT DEFAULT '',
+  template_tech_dispatch TEXT DEFAULT '',
+  template_completion TEXT DEFAULT '',
+  custom_note TEXT DEFAULT '',
   is_simulation INTEGER NOT NULL DEFAULT 1,
   is_active INTEGER NOT NULL DEFAULT 1,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
