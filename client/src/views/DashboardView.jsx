@@ -76,13 +76,13 @@ export default function DashboardView({ onSelectJob, onNavigateToTab, onOpenAddC
   const postponedJobsList = data?.postponed_jobs || [];
   const unconfirmedJobsList = data?.unconfirmed_jobs || [];
 
-  const todayCount = todayJobsList.length || counters.today_jobs || 0;
-  const tomorrowCount = tomorrowJobsList.length || counters.tomorrow_jobs || 0;
-  const overdueCount = overdueJobsList.length || counters.overdue_jobs || 0;
-  const pendingCount = pendingJobsList.length || counters.pending_jobs || 0;
-  const completedCount = completedJobsList.length || counters.completed_jobs || 0;
-  const postponedCount = postponedJobsList.length || counters.postponed_jobs || 0;
-  const unconfirmedCount = unconfirmedJobsList.length || counters.unconfirmed_jobs || 0;
+  const todayCount = counters.today_jobs !== undefined ? counters.today_jobs : todayJobsList.length;
+  const tomorrowCount = counters.tomorrow_jobs !== undefined ? counters.tomorrow_jobs : tomorrowJobsList.length;
+  const overdueCount = counters.overdue_jobs !== undefined ? counters.overdue_jobs : overdueJobsList.length;
+  const pendingCount = counters.pending_jobs !== undefined ? counters.pending_jobs : pendingJobsList.length;
+  const completedCount = counters.completed_jobs !== undefined ? counters.completed_jobs : completedJobsList.length;
+  const postponedCount = counters.postponed_jobs !== undefined ? counters.postponed_jobs : postponedJobsList.length;
+  const unconfirmedCount = counters.unconfirmed_jobs !== undefined ? counters.unconfirmed_jobs : unconfirmedJobsList.length;
 
   return (
     <div className="w-full space-y-6 pb-16">

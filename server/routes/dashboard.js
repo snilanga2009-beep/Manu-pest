@@ -53,8 +53,8 @@ router.get('/', (req, res) => {
     WHERE scheduled_date >= ? AND customer_confirmation_status = 'UNCONFIRMED'
   `).get(today).count;
 
-  // Today's jobs detailed list
-  const todayJobs = db.prepare(`
+  // Base query fragment for rich job details
+  const jobSelectFragment = `
     SELECT j.*, 
            c.name as customer_name, c.phone as customer_phone, c.customer_code,
            l.location_name, l.address as location_address, l.latitude, l.longitude,
@@ -65,25 +65,60 @@ router.get('/', (req, res) => {
     LEFT JOIN customer_locations l ON j.location_id = l.id
     JOIN treatments t ON j.treatment_id = t.id
     LEFT JOIN staff tech ON j.technician_id = tech.id
+  `;
+
+  // 1. Today's jobs detailed list
+  const todayJobs = db.prepare(`
+    ${jobSelectFragment}
     WHERE j.scheduled_date = ?
     ORDER BY j.scheduled_time ASC, j.id ASC
   `).all(today);
 
-  // Overdue jobs list preview
+  // 2. Tomorrow's jobs detailed list
+  const tomorrowJobs = db.prepare(`
+    ${jobSelectFragment}
+    WHERE j.scheduled_date = ?
+    ORDER BY j.scheduled_time ASC, j.id ASC
+  `).all(tomorrow);
+
+  // 3. Overdue jobs list
   const overdueJobs = db.prepare(`
-    SELECT j.*, 
-           c.name as customer_name, c.phone as customer_phone,
-           l.location_name,
-           t.code as treatment_code,
-           tech.full_name as technician_name
-    FROM jobs j
-    JOIN customers c ON j.customer_id = c.id
-    LEFT JOIN customer_locations l ON j.location_id = l.id
-    JOIN treatments t ON j.treatment_id = t.id
-    LEFT JOIN staff tech ON j.technician_id = tech.id
+    ${jobSelectFragment}
     WHERE j.scheduled_date < ? AND j.status IN ('TO_BE_DONE', 'ASSIGNED', 'CONFIRMED')
-    ORDER BY j.scheduled_date DESC
-    LIMIT 10
+    ORDER BY j.scheduled_date DESC, j.id DESC
+    LIMIT 100
+  `).all(today);
+
+  // 4. Pending jobs list
+  const pendingJobs = db.prepare(`
+    ${jobSelectFragment}
+    WHERE j.status IN ('TO_BE_DONE', 'ASSIGNED')
+    ORDER BY j.scheduled_date ASC, j.scheduled_time ASC, j.id ASC
+    LIMIT 100
+  `).all();
+
+  // 5. Completed jobs list
+  const completedJobs = db.prepare(`
+    ${jobSelectFragment}
+    WHERE j.status = 'COMPLETED'
+    ORDER BY COALESCE(j.completed_at, j.scheduled_date) DESC, j.id DESC
+    LIMIT 100
+  `).all();
+
+  // 6. Postponed jobs list
+  const postponedJobs = db.prepare(`
+    ${jobSelectFragment}
+    WHERE j.status = 'POSTPONED'
+    ORDER BY j.scheduled_date DESC, j.id DESC
+    LIMIT 100
+  `).all();
+
+  // 7. Unconfirmed jobs list
+  const unconfirmedJobs = db.prepare(`
+    ${jobSelectFragment}
+    WHERE j.scheduled_date >= ? AND j.customer_confirmation_status = 'UNCONFIRMED'
+    ORDER BY j.scheduled_date ASC, j.id ASC
+    LIMIT 100
   `).all(today);
 
   // Next 7 days job count breakdown
@@ -117,7 +152,12 @@ router.get('/', (req, res) => {
       postponed: todayStats.postponed_today || 0
     },
     today_jobs: todayJobs,
+    tomorrow_jobs: tomorrowJobs,
     overdue_jobs: overdueJobs,
+    pending_jobs: pendingJobs,
+    completed_jobs: completedJobs,
+    postponed_jobs: postponedJobs,
+    unconfirmed_jobs: unconfirmedJobs,
     next_7_days: next7Days
   });
 });
