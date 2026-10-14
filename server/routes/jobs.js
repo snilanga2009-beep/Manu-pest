@@ -204,7 +204,28 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ success: false, error: 'customer_id, treatment_id, and scheduled_date are required' });
   }
 
-  const jobCode = generateJobCode(scheduled_date);
+  // Normalize scheduled_date to prevent invalid calendar days (e.g. Sept 31 -> Sept 30)
+  let cleanScheduledDate = String(scheduled_date).trim();
+  const dateMatch = cleanScheduledDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateMatch) {
+    const y = parseInt(dateMatch[1], 10);
+    const m = parseInt(dateMatch[2], 10);
+    let d = parseInt(dateMatch[3], 10);
+    const maxDays = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    if (d > maxDays) d = maxDays;
+    cleanScheduledDate = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+
+  // Auto-resolve location if not provided
+  let effectiveLocationId = location_id || null;
+  if (!effectiveLocationId && customer_id) {
+    try {
+      const primaryLoc = db.prepare('SELECT id FROM customer_locations WHERE customer_id = ? ORDER BY is_primary DESC, id ASC LIMIT 1').get(customer_id);
+      if (primaryLoc) effectiveLocationId = primaryLoc.id;
+    } catch (e) {}
+  }
+
+  const jobCode = generateJobCode(cleanScheduledDate);
   const workersJson = typeof workers_info === 'object' ? JSON.stringify(workers_info) : (workers_info || null);
 
   try {
@@ -218,11 +239,11 @@ router.post('/', async (req, res) => {
     `).run(
       jobCode,
       customer_id,
-      location_id || null,
+      effectiveLocationId,
       treatment_id,
       technician_id || null,
       salesman_id || null,
-      scheduled_date,
+      cleanScheduledDate,
       scheduled_time || '09:00',
       duration_minutes || 60,
       crew_count ? parseInt(crew_count, 10) : 1,

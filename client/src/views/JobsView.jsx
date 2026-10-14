@@ -3,12 +3,13 @@ import {
   Briefcase, Plus, Search, Filter, Calendar as CalendarIcon,
   PlayCircle, CheckCircle2, Clock, AlertTriangle, XCircle,
   MapPin, Phone, User, Check, X, Camera, PenTool, Edit, UserPlus,
-  Users, HardHat, Copy, Send, ExternalLink, MessageSquare, Smartphone, Sparkles, Lock
+  Users, HardHat, Copy, Send, ExternalLink, MessageSquare, Smartphone, Sparkles, Lock,
+  RefreshCw, Building, CheckCircle
 } from 'lucide-react';
 import {
   getJobs, getJobById, createJob, assignJob, bulkAssignJobs,
   startJob, completeJob, postponeJob, cancelJob,
-  getStaff, getTreatments, getCustomers, sendTechDispatchSms
+  getStaff, getTreatments, getCustomers, getCustomerById, sendTechDispatchSms
 } from '../api';
 import SignaturePad from '../components/SignaturePad';
 import EditJobModal from '../components/EditJobModal';
@@ -121,6 +122,10 @@ export default function JobsView({
   const [staff, setStaff] = useState([]);
   const [treatments, setTreatments] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+  const [customerLocations, setCustomerLocations] = useState([]);
+  const [loadingLocations, setLoadingLocations] = useState(false);
 
   // Create Manual Job Form
   const colomboToday = new Intl.DateTimeFormat('en-CA', {
@@ -153,6 +158,73 @@ export default function JobsView({
     salesman_id: '', scheduled_date: colomboToday,
     scheduled_time: '09:00', duration_minutes: 60, crew_count: 1, notes: ''
   });
+
+  const loadAllCustomers = async () => {
+    setLoadingCustomers(true);
+    try {
+      const res = await getCustomers({ limit: 500 });
+      setCustomers(res.customers || []);
+    } catch (e) {
+      console.error('Failed to load customers:', e);
+    } finally {
+      setLoadingCustomers(false);
+    }
+  };
+
+  const resetNewJobForm = () => {
+    setNewJobForm({
+      customer_id: '', location_id: '', treatment_id: '', technician_id: '',
+      salesman_id: '', scheduled_date: colomboToday,
+      scheduled_time: '09:00', duration_minutes: 60, crew_count: 1, notes: ''
+    });
+    setCustomerSearchQuery('');
+    setCustomerLocations([]);
+  };
+
+  const handleSelectCustomerForNewJob = async (customerId) => {
+    setNewJobForm(prev => ({ ...prev, customer_id: customerId, location_id: '' }));
+    if (!customerId) {
+      setCustomerLocations([]);
+      return;
+    }
+    setLoadingLocations(true);
+    try {
+      const res = await getCustomerById(customerId);
+      const locs = res.locations || [];
+      setCustomerLocations(locs);
+      const primaryLoc = locs.find(l => l.is_primary) || locs[0];
+      if (primaryLoc) {
+        setNewJobForm(prev => ({ ...prev, location_id: primaryLoc.id }));
+      }
+    } catch (e) {
+      console.error(e);
+      setCustomerLocations([]);
+    } finally {
+      setLoadingLocations(false);
+    }
+  };
+
+  const handleSelectTreatmentForNewJob = (treatmentId) => {
+    const t = treatments.find(item => String(item.id) === String(treatmentId));
+    setNewJobForm(prev => ({
+      ...prev,
+      treatment_id: treatmentId,
+      duration_minutes: t?.default_duration_minutes || prev.duration_minutes || 60
+    }));
+  };
+
+  const filteredCustomers = customers.filter(c => {
+    if (!customerSearchQuery) return true;
+    const q = customerSearchQuery.toLowerCase();
+    return (
+      (c.name && c.name.toLowerCase().includes(q)) ||
+      (c.customer_code && c.customer_code.toLowerCase().includes(q)) ||
+      (c.phone && c.phone.includes(q)) ||
+      (c.location && c.location.toLowerCase().includes(q))
+    );
+  });
+
+  const selectedCustomerObj = customers.find(c => String(c.id) === String(newJobForm.customer_id));
 
   const loadJobs = async () => {
     setLoading(true);
@@ -208,8 +280,14 @@ export default function JobsView({
   useEffect(() => {
     getStaff().then(r => setStaff(r.staff || []));
     getTreatments().then(r => setTreatments(r.treatments || []));
-    getCustomers({ limit: 100 }).then(r => setCustomers(r.customers || []));
+    loadAllCustomers();
   }, []);
+
+  useEffect(() => {
+    if (showCreateModal && customers.length === 0) {
+      loadAllCustomers();
+    }
+  }, [showCreateModal]);
 
   useEffect(() => {
     if (initialJobId) {
@@ -312,6 +390,7 @@ export default function JobsView({
         alert('Job created successfully! (SMS dispatch was disabled)');
       }
       setShowCreateModal(false);
+      resetNewJobForm();
       loadJobs();
     } catch (err) {
       alert(`Error: ${err.message}`);
@@ -1395,42 +1474,149 @@ export default function JobsView({
       {/* Create Manual Job Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h2 className="text-base font-bold text-slate-900">Create Ad-hoc Service Job</h2>
-              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-700">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Briefcase className="w-5 h-5 text-emerald-600" />
+                  <span>Create Ad-hoc Service Job</span>
+                </h2>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Schedule an on-demand or emergency service job for a customer.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowCreateModal(false); resetNewJobForm(); }}
+                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-xl hover:bg-slate-100 transition"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateJob} className="space-y-3 text-xs">
-              <div>
-                <label className="font-semibold text-slate-700">Customer *</label>
+            <form onSubmit={handleCreateJob} className="space-y-3.5 text-xs">
+              {/* Customer Selector with Search */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-700 flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Select Customer *</span>
+                  </label>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                    {loadingCustomers ? (
+                      <span className="flex items-center gap-1 text-emerald-600 font-semibold animate-pulse">
+                        <RefreshCw className="w-3 h-3 animate-spin" /> Loading ({customers.length})...
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={loadAllCustomers}
+                        className="flex items-center gap-1 text-emerald-700 hover:text-emerald-900 font-semibold cursor-pointer"
+                        title="Reload customers list"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>{customers.length} Customers</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Filter input */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Type name, code (e.g. CUST-001) or phone to filter..."
+                    value={customerSearchQuery}
+                    onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-8 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs placeholder:text-slate-400 focus:outline-hidden focus:border-emerald-500 focus:bg-white transition"
+                  />
+                  {customerSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomerSearchQuery('')}
+                      className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Customer Dropdown */}
                 <select
                   required
                   value={newJobForm.customer_id}
-                  onChange={(e) => setNewJobForm({ ...newJobForm, customer_id: e.target.value })}
-                  className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                  onChange={(e) => handleSelectCustomerForNewJob(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500 focus:bg-white font-medium"
                 >
-                  <option value="">Select Customer</option>
-                  {customers.map(c => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.customer_code})</option>
+                  <option value="">-- Choose a Customer ({filteredCustomers.length} available) --</option>
+                  {filteredCustomers.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.customer_code}){c.phone ? ` - ${c.phone}` : ''}{c.location ? ` - ${c.location}` : ''}
+                    </option>
                   ))}
                 </select>
+
+                {/* Selected Customer Card Preview */}
+                {selectedCustomerObj && (
+                  <div className="p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center justify-between text-[11px] text-emerald-900">
+                    <div className="space-y-0.5">
+                      <div className="font-bold flex items-center gap-1.5">
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>{selectedCustomerObj.name}</span>
+                        <span className="font-mono text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-semibold">{selectedCustomerObj.customer_code}</span>
+                      </div>
+                      <div className="text-slate-600 flex items-center gap-3 text-[10px]">
+                        {selectedCustomerObj.phone && <span>📞 {selectedCustomerObj.phone}</span>}
+                        {selectedCustomerObj.location && <span>📍 {selectedCustomerObj.location}</span>}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {/* Location / Site Selector */}
+              {newJobForm.customer_id && (
+                <div>
+                  <label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                    <Building className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Service Location / Site</span>
+                    {loadingLocations && <span className="text-[10px] text-indigo-600 animate-pulse font-normal">Loading sites...</span>}
+                  </label>
+                  <select
+                    value={newJobForm.location_id}
+                    onChange={(e) => setNewJobForm({ ...newJobForm, location_id: e.target.value })}
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-indigo-500 font-medium"
+                  >
+                    {customerLocations.length === 0 ? (
+                      <option value="">Default Customer Address ({selectedCustomerObj?.address || selectedCustomerObj?.location || 'Primary Site'})</option>
+                    ) : (
+                      <>
+                        <option value="">-- Select Specific Site/Branch (or Primary) --</option>
+                        {customerLocations.map(loc => (
+                          <option key={loc.id} value={loc.id}>
+                            {loc.location_name}{loc.address ? ` (${loc.address})` : ''} {loc.is_primary ? '★ Primary' : ''}
+                          </option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+                </div>
+              )}
+
+              {/* Treatment and Technician */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold text-slate-700">Treatment *</label>
                   <select
                     required
                     value={newJobForm.treatment_id}
-                    onChange={(e) => setNewJobForm({ ...newJobForm, treatment_id: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                    onChange={(e) => handleSelectTreatmentForNewJob(e.target.value)}
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
                   >
                     <option value="">Select Treatment</option>
                     {treatments.map(t => (
-                      <option key={t.id} value={t.id}>{t.code} - {t.name}</option>
+                      <option key={t.id} value={t.id}>{t.code} - {t.name} ({t.default_duration_minutes || 60}m)</option>
                     ))}
                   </select>
                 </div>
@@ -1440,28 +1626,56 @@ export default function JobsView({
                   <select
                     value={newJobForm.technician_id}
                     onChange={(e) => setNewJobForm({ ...newJobForm, technician_id: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
                   >
                     <option value="">Unassigned</option>
                     {staff.filter(s => s.role === 'TECHNICIAN').map(s => (
-                      <option key={s.id} value={s.id}>{s.full_name}</option>
+                      <option key={s.id} value={s.id}>{s.full_name}{s.phone ? ` (${s.phone})` : ''}</option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              {/* Scheduled Date & Quick Select */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
                   <label className="font-semibold text-slate-700">Scheduled Date *</label>
-                  <input
-                    type="date"
-                    required
-                    value={newJobForm.scheduled_date}
-                    onChange={(e) => setNewJobForm({ ...newJobForm, scheduled_date: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
-                  />
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setNewJobForm({ ...newJobForm, scheduled_date: colomboToday })}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                        newJobForm.scheduled_date === colomboToday
+                          ? 'bg-orange-500 text-white border-orange-600'
+                          : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-orange-50 hover:text-orange-700'
+                      }`}
+                    >
+                      Today ({colomboToday})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewJobForm({ ...newJobForm, scheduled_date: colomboTomorrow })}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                        newJobForm.scheduled_date === colomboTomorrow
+                          ? 'bg-purple-600 text-white border-purple-700'
+                          : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-purple-50 hover:text-purple-700'
+                      }`}
+                    >
+                      Tomorrow
+                    </button>
+                  </div>
                 </div>
+                <input
+                  type="date"
+                  required
+                  value={newJobForm.scheduled_date}
+                  onChange={(e) => setNewJobForm({ ...newJobForm, scheduled_date: e.target.value })}
+                  className="w-full p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
+                />
+              </div>
 
+              {/* Time, Duration & Crew Size */}
+              <div className="grid grid-cols-3 gap-2.5">
                 <div>
                   <label className="font-semibold text-slate-700">Scheduled Time</label>
                   <input
@@ -1471,13 +1685,23 @@ export default function JobsView({
                     className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                  <label className="font-semibold text-slate-700">Duration (mins)</label>
+                  <input
+                    type="number"
+                    min="15"
+                    step="15"
+                    value={newJobForm.duration_minutes}
+                    onChange={(e) => setNewJobForm({ ...newJobForm, duration_minutes: parseInt(e.target.value) || 60 })}
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-700 flex items-center gap-1">
                     <Users className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Crew Size (People)</span>
+                    <span>Crew Size</span>
                   </label>
                   <input
                     type="number"
@@ -1491,12 +1715,24 @@ export default function JobsView({
                 </div>
               </div>
 
+              {/* Technician Notes / Instructions */}
+              <div>
+                <label className="font-semibold text-slate-700">Technician Notes / Instructions</label>
+                <textarea
+                  rows="2"
+                  value={newJobForm.notes}
+                  onChange={(e) => setNewJobForm({ ...newJobForm, notes: e.target.value })}
+                  placeholder="Enter specific instructions or problem report for the technician..."
+                  className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500 resize-none"
+                />
+              </div>
+
               {/* SMS Dispatch Toggle Button */}
-              <div className="pt-2">
+              <div className="pt-1">
                 <button
                   type="button"
                   onClick={() => setCreateSendSms(!createSendSms)}
-                  className={`w-full py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-between transition cursor-pointer ${
+                  className={`w-full py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-between transition cursor-pointer ${
                     createSendSms
                       ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                       : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
@@ -1512,14 +1748,23 @@ export default function JobsView({
                     {createSendSms ? 'ENABLED ✓' : 'DISABLED ✕'}
                   </span>
                 </button>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Keep disabled if technician already uses the mobile app to view assigned jobs.
-                </p>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button type="button" onClick={() => setShowCreateModal(false)} className="px-4 py-2 font-semibold text-slate-600">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl">Create Job</button>
+                <button
+                  type="button"
+                  onClick={() => { setShowCreateModal(false); resetNewJobForm(); }}
+                  className="px-4 py-2 font-semibold text-slate-600 hover:text-slate-800 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newJobForm.customer_id || !newJobForm.treatment_id || !newJobForm.scheduled_date}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-xs transition cursor-pointer"
+                >
+                  Create Job
+                </button>
               </div>
             </form>
           </div>
