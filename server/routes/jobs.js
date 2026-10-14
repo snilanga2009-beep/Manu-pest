@@ -173,21 +173,21 @@ router.get('/:id', (req, res) => {
     LEFT JOIN staff tech ON j.technician_id = tech.id
     LEFT JOIN staff sales ON j.salesman_id = sales.id
     LEFT JOIN recurring_services r ON j.recurring_service_id = r.id
-    WHERE j.id = ?
-  `).get(id);
+    WHERE j.id = ? OR j.job_code = ?
+  `).get(id, id);
 
   if (!job) {
     return res.status(404).json({ success: false, error: 'Job not found' });
   }
 
-  const photos = db.prepare('SELECT * FROM job_photos WHERE job_id = ? ORDER BY created_at ASC').all(id);
+  const photos = db.prepare('SELECT * FROM job_photos WHERE job_id = ? ORDER BY created_at ASC').all(job.id);
   const logs = db.prepare(`
     SELECT l.*, s.full_name as performed_by_name
     FROM job_logs l
     LEFT JOIN staff s ON l.performed_by_id = s.id
     WHERE l.job_id = ?
     ORDER BY l.timestamp DESC
-  `).all(id);
+  `).all(job.id);
 
   res.json({ success: true, job, photos, logs });
 });

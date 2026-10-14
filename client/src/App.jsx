@@ -521,7 +521,7 @@ export default function App() {
               />
             )}
             {activeTab === 'reports' && (
-              <ReportsView />
+              <ReportsView onSelectJob={handleSelectJob} />
             )}
             {activeTab === 'backup' && (
               <BackupDatabaseView />
