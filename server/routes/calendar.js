@@ -2,19 +2,27 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
-router.get('/events', (req, res) => {
-  const { start_date, end_date, technician_id, status, treatment_id, frequency, location } = req.query;
+function handleCalendarRequest(req, res) {
+  const { month, start_date, end_date, technician_id, status, treatment_id, frequency, location } = req.query;
 
   let whereClauses = ['1=1'];
   const params = [];
 
-  if (start_date) {
-    whereClauses.push('j.scheduled_date >= ?');
-    params.push(start_date);
+  let effectiveStart = start_date;
+  let effectiveEnd = end_date;
+
+  if (month && !start_date && !end_date) {
+    effectiveStart = `${month}-01`;
+    effectiveEnd = `${month}-31`;
   }
-  if (end_date) {
+
+  if (effectiveStart) {
+    whereClauses.push('j.scheduled_date >= ?');
+    params.push(effectiveStart);
+  }
+  if (effectiveEnd) {
     whereClauses.push('j.scheduled_date <= ?');
-    params.push(end_date);
+    params.push(effectiveEnd);
   }
   if (technician_id) {
     whereClauses.push('j.technician_id = ?');
@@ -70,6 +78,9 @@ router.get('/events', (req, res) => {
     events: jobs,
     eventsByDate
   });
-});
+}
+
+router.get('/', handleCalendarRequest);
+router.get('/events', handleCalendarRequest);
 
 module.exports = router;

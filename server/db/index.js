@@ -19,9 +19,13 @@ if (!fs.existsSync(DB_DIR)) {
 const DB_PATH = path.join(DB_DIR, 'pest_control.db');
 const db = new Database(DB_PATH);
 
-// Enable WAL mode and foreign keys for high performance and integrity
+// Enable WAL mode, foreign keys, and high-performance in-memory caching pragmas
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+db.pragma('synchronous = NORMAL');
+db.pragma('cache_size = -64000'); // 64MB page cache
+db.pragma('temp_store = MEMORY');
+db.pragma('mmap_size = 268435456'); // 256MB memory-mapped I/O
 
 // Initialize schema
 const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
@@ -76,6 +80,31 @@ try { db.exec("ALTER TABLE sms_settings ADD COLUMN template_arrival TEXT DEFAULT
 try { db.exec("ALTER TABLE sms_settings ADD COLUMN template_tech_dispatch TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE sms_settings ADD COLUMN template_completion TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE sms_settings ADD COLUMN custom_note TEXT DEFAULT ''"); } catch (e) {}
+
+// High-performance composite indexes for fast query execution & reactivity
+try {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_jobs_location ON jobs(location_id);
+    CREATE INDEX IF NOT EXISTS idx_jobs_treatment ON jobs(treatment_id);
+    CREATE INDEX IF NOT EXISTS idx_jobs_date_status ON jobs(scheduled_date, status);
+    CREATE INDEX IF NOT EXISTS idx_jobs_status_date ON jobs(status, scheduled_date);
+    CREATE INDEX IF NOT EXISTS idx_jobs_confirmation ON jobs(customer_confirmation_status);
+    CREATE INDEX IF NOT EXISTS idx_customers_active ON customers(is_active);
+    CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
+    CREATE INDEX IF NOT EXISTS idx_customers_code ON customers(customer_code);
+    CREATE INDEX IF NOT EXISTS idx_cust_loc_primary ON customer_locations(customer_id, is_primary);
+  `);
+} catch (e) {}
+
+function clearServerCache() {
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)');
+    db.pragma('optimize');
+    return { success: true, message: 'Server database cache and WAL cleared successfully' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
 
 // Seed default passwords for staff without password_hash
 try {

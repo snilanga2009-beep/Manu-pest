@@ -125,4 +125,30 @@ router.delete('/:id', (req, res) => {
   }
 });
 
+/**
+ * POST & GET /api/backup/clear-cache
+ * Clears database cache, checkpoints and truncates WAL journal, runs vacuum/optimize
+ */
+const handleClearCache = (req, res) => {
+  try {
+    const db = require('../db');
+    // Checkpoint WAL and truncate WAL log to 0 bytes
+    db.pragma('wal_checkpoint(TRUNCATE)');
+    // Run query planner optimization
+    db.pragma('optimize');
+
+    res.json({
+      success: true,
+      message: 'Server database cache, query planner, and WAL buffer cleared successfully.',
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('[Clear Cache Error]:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+router.post('/clear-cache', handleClearCache);
+router.get('/clear-cache', handleClearCache);
+
 module.exports = router;
