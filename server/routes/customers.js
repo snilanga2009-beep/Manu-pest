@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { calculateFirstServiceDate, generateJobCode, formatDateColombo, generateRecurringScheduleSequence } = require('../services/recurringEngine');
 
 // List customers with optional search and filter
 router.get('/', (req, res) => {
@@ -146,7 +147,8 @@ router.get('/:id', (req, res) => {
 router.post('/', (req, res) => {
   const {
     name, contact_person, phone, email, address, location,
-    latitude, longitude, special_instructions, primary_location_name
+    latitude, longitude, special_instructions, primary_location_name,
+    recurring_contract
   } = req.body;
 
   if (!name) {
@@ -185,18 +187,84 @@ router.post('/', (req, res) => {
 
     // Create primary location
     const locName = primary_location_name || location || name.trim() + ' Main';
-    db.prepare(`
+    const locRes = db.prepare(`
       INSERT INTO customer_locations (customer_id, location_name, address, latitude, longitude, contact_person, phone, is_primary)
       VALUES (?, ?, ?, ?, ?, ?, ?, 1)
     `).run(customerId, locName, address || locName, latitude || null, longitude || null, contact_person || '', phone || '');
+    const locationId = locRes.lastInsertRowid;
 
-    return { customerId, customerCode };
+    let createdRecurring = null;
+    let createdJobs = [];
+
+    // Optional recurring contract setup during customer creation
+    if (recurring_contract && recurring_contract.treatment_id && recurring_contract.frequency) {
+      const {
+        treatment_id, frequency, preferred_day, preferred_time,
+        technician_id, salesman_id, start_date, notes,
+        generate_immediate_job, schedule_horizon_months = 3
+      } = recurring_contract;
+
+      const baseDate = start_date || formatDateColombo(new Date());
+      const firstDate = calculateFirstServiceDate(baseDate, preferred_day);
+
+      const rRes = db.prepare(`
+        INSERT INTO recurring_services (
+          customer_id, location_id, treatment_id, frequency, preferred_day,
+          preferred_time, duration_minutes, technician_id, salesman_id,
+          last_service_date, next_service_date, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        customerId,
+        locationId,
+        treatment_id,
+        frequency.toUpperCase(),
+        preferred_day ? preferred_day.toUpperCase().substring(0, 3) : null,
+        preferred_time || '09:00',
+        recurring_contract.duration_minutes || 60,
+        technician_id || null,
+        salesman_id || null,
+        null,
+        firstDate,
+        notes || ''
+      );
+
+      const recurringId = rRes.lastInsertRowid;
+      createdRecurring = { id: recurringId, next_service_date: firstDate };
+
+      if (generate_immediate_job) {
+        const horizon = parseInt(schedule_horizon_months, 10);
+        if (horizon === 0) {
+          const jobCode = generateJobCode(firstDate);
+          const jobStatus = technician_id ? 'ASSIGNED' : 'TO_BE_DONE';
+          const jRes = db.prepare(`
+            INSERT INTO jobs (
+              job_code, recurring_service_id, customer_id, location_id, treatment_id,
+              technician_id, salesman_id, scheduled_date, scheduled_time, duration_minutes,
+              status, technician_notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            jobCode, recurringId, customerId, locationId, treatment_id,
+            technician_id || null, salesman_id || null, firstDate,
+            preferred_time || '09:00', recurring_contract.duration_minutes || 60,
+            jobStatus, notes || ('Initial recurring ' + frequency.toUpperCase() + ' job')
+          );
+          createdJobs.push({ id: jRes.lastInsertRowid, job_code: jobCode, scheduled_date: firstDate });
+        } else {
+          createdJobs = generateRecurringScheduleSequence(recurringId, {
+            horizonMonths: isNaN(horizon) ? 3 : horizon,
+            firstDate: firstDate
+          });
+        }
+      }
+    }
+
+    return { customerId, customerCode, recurring: createdRecurring, jobs: createdJobs };
   });
 
   try {
     const created = tx();
     const newCustomer = db.prepare('SELECT * FROM customers WHERE id = ?').get(created.customerId);
-    res.json({ success: true, customer: newCustomer });
+    res.json({ success: true, customer: newCustomer, recurring: created.recurring, jobs: created.jobs, total_jobs_generated: created.jobs?.length || 0 });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

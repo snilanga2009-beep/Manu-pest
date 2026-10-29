@@ -2,13 +2,44 @@ import React, { useState, useEffect } from 'react';
 import {
   Users, Plus, Search, MapPin, Phone, Mail, Calendar,
   CheckCircle2, Clock, AlertCircle, ChevronRight, X,
-  Shield, Edit, PlusCircle, Repeat, User, HardHat
+  Shield, Edit, PlusCircle, Repeat, User, HardHat, CalendarCheck, PlayCircle, Trash2, Check
 } from 'lucide-react';
 import {
   getCustomers, getCustomerById, createCustomer, updateCustomer,
-  addCustomerLocation, createRecurringService, getTreatments, getStaff
+  addCustomerLocation, createRecurringService, updateRecurringService, deleteRecurringService, generateRecurringSchedule, getTreatments, getStaff
 } from '../api';
 import EditCustomerModal from '../components/EditCustomerModal';
+
+
+export const FREQUENCY_OPTIONS = [
+  { value: 'DAILY', label: 'Daily (Every Day)' },
+  { value: 'WEEKLY', label: 'Weekly (Every Week on Preferred Day)' },
+  { value: 'FORTNIGHTLY', label: 'Fortnightly (Every 2 Weeks / Bi-Weekly)' },
+  { value: 'TWICE A MONTH', label: 'Twice A Month (1st & 15th / Semi-Monthly)' },
+  { value: 'MONTHLY', label: 'Monthly (Every Month)' },
+  { value: '2 MONTHLY', label: '2 Monthly (Every 2 Months / Bi-Monthly)' },
+  { value: '3 MONTHLY', label: '3 Monthly (Quarterly / Every 3 Months)' },
+  { value: '4 MONTHLY', label: '4 Monthly (Every 4 Months)' },
+  { value: '6 MONTHLY', label: '6 Monthly (Semi-Annually / Twice a Year)' },
+  { value: 'ANNUALLY', label: 'Annually (Yearly / Once a Year)' },
+  { value: 'CUSTOM', label: 'Custom Interval' },
+];
+
+export function getPreviewScheduledDate(startDateStr, preferredDay) {
+  if (!startDateStr) return '';
+  const d = new Date(startDateStr + 'T12:00:00Z');
+  if (isNaN(d.getTime())) return startDateStr;
+  const DAY_MAP = { MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6, SUN: 0 };
+  if (preferredDay && DAY_MAP[preferredDay] !== undefined) {
+    const target = DAY_MAP[preferredDay];
+    const cur = d.getUTCDay();
+    const diff = (target - cur + 7) % 7;
+    if (diff > 0) {
+      d.setUTCDate(d.getUTCDate() + diff);
+    }
+  }
+  return d.toISOString().substring(0, 10);
+}
 
 export default function CustomersView({
   selectedCustomerId,
@@ -58,11 +89,30 @@ export default function CustomersView({
     location_name: '', address: '', latitude: '', longitude: '', contact_person: '', phone: ''
   });
 
+  const colomboToday = new Date().toISOString().substring(0, 10);
   const [newRecurringForm, setNewRecurringForm] = useState({
-    location_id: '', treatment_id: '', frequency: 'MONTHLY',
+    location_id: '', treatment_id: '', frequency: 'WEEKLY',
     preferred_day: 'MON', preferred_time: '09:00', duration_minutes: 60,
-    technician_id: '', salesman_id: '', start_date: new Date().toISOString().substring(0, 10),
-    notes: '', generate_immediate_job: true
+    technician_id: '', salesman_id: '', start_date: colomboToday,
+    schedule_horizon_months: 3, notes: '', generate_immediate_job: true
+  });
+
+  // Edit Recurring Contract Modal State
+  const [editingRecurring, setEditingRecurring] = useState(null);
+  const [editRecurringForm, setEditRecurringForm] = useState({
+    treatment_id: '', frequency: 'WEEKLY',
+    preferred_day: 'MON', preferred_time: '09:00', duration_minutes: 60,
+    technician_id: '', salesman_id: '', next_service_date: colomboToday,
+    status: 'ACTIVE', notes: '', update_future_jobs: true
+  });
+
+  // Optional recurring in Add Customer form
+  const [addCustomerWithRecurring, setAddCustomerWithRecurring] = useState(false);
+  const [customerRecurringContract, setCustomerRecurringContract] = useState({
+    treatment_id: '', frequency: 'WEEKLY',
+    preferred_day: 'MON', preferred_time: '09:00', duration_minutes: 60,
+    technician_id: '', salesman_id: '', start_date: colomboToday,
+    schedule_horizon_months: 3, notes: '', generate_immediate_job: true
   });
 
   const loadCustomers = async () => {
@@ -123,14 +173,20 @@ export default function CustomersView({
   const handleCreateCustomer = async (e) => {
     e.preventDefault();
     try {
-      const res = await createCustomer(newCustomerForm);
-      alert('Customer created successfully!');
+      const payload = {
+        ...newCustomerForm,
+        recurring_contract: addCustomerWithRecurring ? customerRecurringContract : null
+      };
+      const res = await createCustomer(payload);
+      const jobsMsg = res.total_jobs_generated ? ` and ${res.total_jobs_generated} jobs scheduled on Master Calendar!` : '!';
+      alert('Customer created successfully' + jobsMsg);
       setShowAddCustomerModal(false);
       setNewCustomerForm({
         name: '', contact_person: '', phone: '', email: '',
         address: '', location: '', latitude: '', longitude: '',
         special_instructions: '', primary_location_name: ''
       });
+      setAddCustomerWithRecurring(false);
       loadCustomers();
       loadCustomerDetails(res.customer.id);
     } catch (err) {
@@ -154,12 +210,64 @@ export default function CustomersView({
   const handleCreateRecurring = async (e) => {
     e.preventDefault();
     try {
-      await createRecurringService({
+      const res = await createRecurringService({
         ...newRecurringForm,
         customer_id: activeCustomer.id
       });
-      alert('Recurring service created and initial job generated!');
+      const count = res.total_jobs_generated || (res.job ? 1 : 0);
+      alert(`Recurring service created successfully!\n\n${count} job(s) generated on the Master Operations Schedule Calendar.`);
       setShowAddRecurringModal(false);
+      loadCustomerDetails(activeCustomer.id);
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+  };
+
+  const handleOpenEditRecurring = (rec) => {
+    setEditingRecurring(rec);
+    setEditRecurringForm({
+      treatment_id: rec.treatment_id || '',
+      frequency: rec.frequency || 'MONTHLY',
+      preferred_day: rec.preferred_day || 'MON',
+      preferred_time: rec.preferred_time || '09:00',
+      duration_minutes: rec.duration_minutes || 60,
+      technician_id: rec.technician_id || '',
+      salesman_id: rec.salesman_id || '',
+      next_service_date: rec.next_service_date || colomboToday,
+      status: rec.status || 'ACTIVE',
+      notes: rec.notes || '',
+      update_future_jobs: true
+    });
+  };
+
+  const handleUpdateRecurring = async (e) => {
+    e.preventDefault();
+    if (!editingRecurring) return;
+    try {
+      await updateRecurringService(editingRecurring.id, editRecurringForm);
+      alert('Recurring contract updated successfully!');
+      setEditingRecurring(null);
+      loadCustomerDetails(activeCustomer.id);
+    } catch (err) {
+      alert(`Error updating recurring contract: ${err.message}`);
+    }
+  };
+
+  const handleGenerateSchedule = async (recId, months = 3) => {
+    try {
+      const res = await generateRecurringSchedule(recId, months);
+      alert(`Schedule generated successfully!\n\n${res.count} jobs added to Master Schedule Calendar.`);
+      loadCustomerDetails(activeCustomer.id);
+    } catch (err) {
+      alert(`Error generating schedule: ${err.message}`);
+    }
+  };
+
+  const handleDeleteRecurring = async (recId) => {
+    if (!confirm('Are you sure you want to cancel this recurring contract? Any uncompleted future jobs will also be cancelled.')) return;
+    try {
+      await deleteRecurringService(recId, true);
+      alert('Recurring contract cancelled.');
       loadCustomerDetails(activeCustomer.id);
     } catch (err) {
       alert(`Error: ${err.message}`);
@@ -419,25 +527,76 @@ export default function CustomersView({
                   ) : (
                     <div className="space-y-2">
                       {activeCustomerDetails?.recurring_services?.map(r => (
-                        <div key={r.id} className="p-3.5 bg-white border border-slate-200 rounded-xl shadow-2xs text-xs space-y-1.5">
+                        <div key={r.id} className="p-4 bg-white border border-slate-200 hover:border-emerald-300 rounded-2xl shadow-2xs text-xs space-y-2.5 transition">
                           <div className="flex items-center justify-between">
-                            <span
-                              style={{ backgroundColor: `${r.treatment_color || '#10B981'}20`, color: r.treatment_color || '#10B981' }}
-                              className="px-2 py-0.5 rounded font-bold"
-                            >
-                              {r.treatment_code}
-                            </span>
-                            <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                              {r.frequency}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span
+                                style={{ backgroundColor: `${r.treatment_color || '#10B981'}20`, color: r.treatment_color || '#10B981' }}
+                                className="px-2.5 py-1 rounded-lg font-black text-xs"
+                              >
+                                {r.treatment_code}
+                              </span>
+                              <span className="font-bold text-slate-800">{r.treatment_name}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                r.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800' :
+                                r.status === 'PAUSED' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
+                              }`}>
+                                {r.status}
+                              </span>
+                              <span className="font-black text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                                {r.frequency}
+                              </span>
+                            </div>
                           </div>
-                          <div className="flex items-center justify-between text-slate-600 text-[11px] pt-1">
-                            <span>Next Service: <strong className="text-slate-900">{r.next_service_date}</strong></span>
-                            <span>Pref: {r.preferred_day || 'Any'} at {r.preferred_time || '09:00'}</span>
+
+                          <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                            <div>
+                              <span className="text-slate-400 block text-[9px] uppercase font-bold">Next Service Date</span>
+                              <strong className="text-slate-900 font-mono text-xs">{r.next_service_date}</strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block text-[9px] uppercase font-bold">Schedule Alignment</span>
+                              <span className="text-slate-700 font-semibold">{r.preferred_day ? `Every ${r.preferred_day}` : 'Any day'} at {r.preferred_time || '09:00'}</span>
+                            </div>
                           </div>
-                          {r.technician_name && (
-                            <div className="text-[11px] text-slate-500">Tech: {r.technician_name}</div>
-                          )}
+
+                          <div className="flex items-center justify-between text-[11px] pt-1">
+                            <div className="flex items-center gap-1.5">
+                              <User className="w-3.5 h-3.5 text-emerald-600" />
+                              <span className="text-slate-600">Assigned Tech: <strong className="text-slate-900">{r.technician_name || 'Unassigned'}</strong></span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleGenerateSchedule(r.id, 3)}
+                                className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold text-[11px] rounded-lg border border-blue-200 flex items-center gap-1 transition"
+                                title="Generate next 3 months of recurring jobs on the Master Operations Calendar"
+                              >
+                                <CalendarCheck className="w-3 h-3 text-blue-600" />
+                                <span>+3M Schedule</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditRecurring(r)}
+                                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-[11px] rounded-lg border border-amber-200 flex items-center gap-1 transition"
+                                title="Edit Recurring Contract"
+                              >
+                                <Edit className="w-3 h-3 text-amber-600" />
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRecurring(r.id)}
+                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                                title="Cancel Contract"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -661,6 +820,128 @@ export default function CustomersView({
                 />
               </div>
 
+              {/* Optional Recurring Contract Setup */}
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={addCustomerWithRecurring}
+                    onChange={(e) => setAddCustomerWithRecurring(e.target.checked)}
+                    className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+                  />
+                  <span>➕ Set Up Recurring Contract & Master Calendar Schedule</span>
+                </label>
+
+                {addCustomerWithRecurring && (
+                  <div className="space-y-3 pt-2 border-t border-slate-200">
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="font-semibold text-slate-700">Treatment *</label>
+                        <select
+                          required={addCustomerWithRecurring}
+                          value={customerRecurringContract.treatment_id}
+                          onChange={(e) => setCustomerRecurringContract({ ...customerRecurringContract, treatment_id: e.target.value })}
+                          className="w-full mt-1 p-2 bg-white rounded-xl border border-slate-300 font-bold text-slate-800"
+                        >
+                          <option value="">Select Treatment</option>
+                          {treatments.map(t => (
+                            <option key={t.id} value={t.id}>{t.code} - {t.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="font-semibold text-slate-700">Frequency *</label>
+                        <select
+                          value={customerRecurringContract.frequency}
+                          onChange={(e) => setCustomerRecurringContract({ ...customerRecurringContract, frequency: e.target.value })}
+                          className="w-full mt-1 p-2 bg-white rounded-xl border border-slate-300 font-black text-emerald-800"
+                        >
+                          {FREQUENCY_OPTIONS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div>
+                        <label className="font-semibold text-slate-700">Start Date</label>
+                        <input
+                          type="date"
+                          value={customerRecurringContract.start_date}
+                          onChange={(e) => setCustomerRecurringContract({ ...customerRecurringContract, start_date: e.target.value })}
+                          className="w-full mt-1 p-2 bg-white rounded-xl border border-slate-300 font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-semibold text-slate-700">Preferred Day</label>
+                        <select
+                          value={customerRecurringContract.preferred_day}
+                          onChange={(e) => setCustomerRecurringContract({ ...customerRecurringContract, preferred_day: e.target.value })}
+                          className="w-full mt-1 p-2 bg-white rounded-xl border border-slate-300 font-semibold"
+                        >
+                          <option value="MON">Monday</option>
+                          <option value="TUE">Tuesday</option>
+                          <option value="WED">Wednesday</option>
+                          <option value="THU">Thursday</option>
+                          <option value="FRI">Friday</option>
+                          <option value="SAT">Saturday</option>
+                          <option value="SUN">Sunday</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="font-semibold text-slate-700">Time</label>
+                        <input
+                          type="time"
+                          value={customerRecurringContract.preferred_time}
+                          onChange={(e) => setCustomerRecurringContract({ ...customerRecurringContract, preferred_time: e.target.value })}
+                          className="w-full mt-1 p-2 bg-white rounded-xl border border-slate-300 font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="font-semibold text-slate-700">Assign Technician</label>
+                        <select
+                          value={customerRecurringContract.technician_id}
+                          onChange={(e) => setCustomerRecurringContract({ ...customerRecurringContract, technician_id: e.target.value })}
+                          className="w-full mt-1 p-2 bg-white rounded-xl border border-slate-300"
+                        >
+                          <option value="">-- Unassigned --</option>
+                          {staff.filter(s => s.role === 'TECHNICIAN').map(s => (
+                            <option key={s.id} value={s.id}>{s.full_name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="font-semibold text-slate-700">Schedule Horizon</label>
+                        <select
+                          value={customerRecurringContract.schedule_horizon_months}
+                          onChange={(e) => setCustomerRecurringContract({ ...customerRecurringContract, schedule_horizon_months: parseInt(e.target.value, 10) })}
+                          className="w-full mt-1 p-2 bg-white rounded-xl border border-slate-300 font-semibold"
+                        >
+                          <option value={0}>First Job Only</option>
+                          <option value={1}>Next 1 Month Schedule</option>
+                          <option value={3}>Next 3 Months (Recommended)</option>
+                          <option value={6}>Next 6 Months</option>
+                          <option value={12}>Full Year (12 Months)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-[11px] text-emerald-900 flex items-center gap-2">
+                      <CalendarCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>
+                        First Service Job: <strong>{getPreviewScheduledDate(customerRecurringContract.start_date, customerRecurringContract.preferred_day)}</strong> ({customerRecurringContract.frequency})
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
@@ -735,14 +1016,14 @@ export default function CustomersView({
               </button>
             </div>
 
-            <form onSubmit={handleCreateRecurring} className="space-y-3 text-xs">
+            <form onSubmit={handleCreateRecurring} className="space-y-3.5 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold text-slate-700">Location</label>
                   <select
                     value={newRecurringForm.location_id}
                     onChange={(e) => setNewRecurringForm({ ...newRecurringForm, location_id: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-medium"
                   >
                     <option value="">All / Primary Location</option>
                     {activeCustomerDetails?.locations?.map(l => (
@@ -757,7 +1038,7 @@ export default function CustomersView({
                     required
                     value={newRecurringForm.treatment_id}
                     onChange={(e) => setNewRecurringForm({ ...newRecurringForm, treatment_id: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-bold"
                   >
                     <option value="">Select Treatment</option>
                     {treatments.map(t => (
@@ -767,30 +1048,41 @@ export default function CustomersView({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold text-slate-700">Frequency *</label>
                   <select
                     value={newRecurringForm.frequency}
                     onChange={(e) => setNewRecurringForm({ ...newRecurringForm, frequency: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-semibold"
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-black text-emerald-800"
                   >
-                    <option value="DAILY">DAILY</option>
-                    <option value="WEEKLY">WEEKLY</option>
-                    <option value="FORTNIGHTLY">FORTNIGHTLY</option>
-                    <option value="MONTHLY">MONTHLY</option>
-                    <option value="3 MONTHLY">3 MONTHLY</option>
+                    {FREQUENCY_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="font-semibold text-slate-700">Preferred Day</label>
+                  <label className="font-semibold text-slate-700">Scheduled Start Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={newRecurringForm.start_date}
+                    onChange={(e) => setNewRecurringForm({ ...newRecurringForm, start_date: e.target.value })}
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-slate-700">Preferred Day of Week</label>
                   <select
                     value={newRecurringForm.preferred_day}
                     onChange={(e) => setNewRecurringForm({ ...newRecurringForm, preferred_day: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-semibold"
                   >
-                    <option value="MON">Monday</option>
+                    <option value="MON">Monday (Fixed Weekly/Fortnightly)</option>
                     <option value="TUE">Tuesday</option>
                     <option value="WED">Wednesday</option>
                     <option value="THU">Thursday</option>
@@ -806,9 +1098,26 @@ export default function CustomersView({
                     type="time"
                     value={newRecurringForm.preferred_time}
                     onChange={(e) => setNewRecurringForm({ ...newRecurringForm, preferred_time: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-mono"
                   />
                 </div>
+              </div>
+
+              {/* Dynamic Live Date Alignment Preview */}
+              <div className="p-3 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl border border-emerald-200 text-xs flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CalendarCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div>
+                    <span className="text-slate-500 text-[10px] uppercase font-bold block">First Service Job Scheduled For:</span>
+                    <strong className="text-emerald-950 font-black text-sm">
+                      {getPreviewScheduledDate(newRecurringForm.start_date, newRecurringForm.preferred_day)}
+                    </strong>
+                    <span className="text-slate-500 ml-1.5 font-medium">({newRecurringForm.frequency})</span>
+                  </div>
+                </div>
+                <span className="font-mono text-emerald-800 bg-emerald-100/80 px-2.5 py-1 rounded-lg font-bold">
+                  {newRecurringForm.preferred_time || '09:00'}
+                </span>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -817,9 +1126,9 @@ export default function CustomersView({
                   <select
                     value={newRecurringForm.technician_id}
                     onChange={(e) => setNewRecurringForm({ ...newRecurringForm, technician_id: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-medium"
                   >
-                    <option value="">Unassigned</option>
+                    <option value="">-- Unassigned --</option>
                     {staff.filter(s => s.role === 'TECHNICIAN').map(s => (
                       <option key={s.id} value={s.id}>{s.full_name}</option>
                     ))}
@@ -831,9 +1140,9 @@ export default function CustomersView({
                   <select
                     value={newRecurringForm.salesman_id}
                     onChange={(e) => setNewRecurringForm({ ...newRecurringForm, salesman_id: e.target.value })}
-                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-medium"
                   >
-                    <option value="">Unassigned</option>
+                    <option value="">-- Unassigned --</option>
                     {staff.filter(s => s.role === 'SALESMAN').map(s => (
                       <option key={s.id} value={s.id}>{s.full_name}</option>
                     ))}
@@ -841,21 +1150,214 @@ export default function CustomersView({
                 </div>
               </div>
 
-              <div className="pt-2">
-                <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-800">
+              {/* Master Calendar Schedule Generation Horizon */}
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-800">
                   <input
                     type="checkbox"
                     checked={newRecurringForm.generate_immediate_job}
                     onChange={(e) => setNewRecurringForm({ ...newRecurringForm, generate_immediate_job: e.target.checked })}
-                    className="rounded text-emerald-600 focus:ring-emerald-500"
+                    className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
                   />
-                  <span>Automatically generate first job on scheduled date</span>
+                  <span>Automatically generate schedule on Master Operations Calendar</span>
                 </label>
+
+                {newRecurringForm.generate_immediate_job && (
+                  <div className="pl-6 space-y-1.5">
+                    <label className="font-bold text-slate-600 text-[11px] block">Schedule Planning Horizon:</label>
+                    <select
+                      value={newRecurringForm.schedule_horizon_months}
+                      onChange={(e) => setNewRecurringForm({ ...newRecurringForm, schedule_horizon_months: parseInt(e.target.value, 10) })}
+                      className="w-full p-2 bg-white rounded-xl border border-slate-300 font-bold text-slate-800"
+                    >
+                      <option value={0}>First Single Job Only</option>
+                      <option value={1}>Next 1 Month of Recurring Schedule</option>
+                      <option value={3}>Next 3 Months (Recommended — Full Quarterly Operations Schedule)</option>
+                      <option value={6}>Next 6 Months (Half-Year Schedule)</option>
+                      <option value={12}>Full Year (12 Months Schedule)</option>
+                    </select>
+                    <p className="text-[10px] text-slate-500 leading-tight">
+                      {newRecurringForm.schedule_horizon_months === 0
+                        ? "Generates exactly one initial job on the scheduled date."
+                        : `Generates all recurring ${newRecurringForm.frequency} jobs across the next ${newRecurringForm.schedule_horizon_months} months directly on the Master Schedule Calendar!`}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button type="button" onClick={() => setShowAddRecurringModal(false)} className="px-4 py-2 font-semibold text-slate-600">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-emerald-600 text-white font-semibold rounded-xl">Save & Generate</button>
+                <button type="button" onClick={() => setShowAddRecurringModal(false)} className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition">Cancel</button>
+                <button type="submit" className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs transition">
+                  Save & Generate Schedule
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      
+      {/* Edit Recurring Contract Modal */}
+      {editingRecurring && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Edit Recurring Contract</h2>
+                <p className="text-[11px] text-slate-500">Update frequency, preferred day, assigned technician, or schedule status</p>
+              </div>
+              <button onClick={() => setEditingRecurring(null)} className="text-slate-400 hover:text-slate-700 p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateRecurring} className="space-y-3.5 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-slate-700">Treatment *</label>
+                  <select
+                    required
+                    value={editRecurringForm.treatment_id}
+                    onChange={(e) => setEditRecurringForm({ ...editRecurringForm, treatment_id: e.target.value })}
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-bold"
+                  >
+                    {treatments.map(t => (
+                      <option key={t.id} value={t.id}>{t.code} - {t.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-700">Contract Status</label>
+                  <select
+                    value={editRecurringForm.status}
+                    onChange={(e) => setEditRecurringForm({ ...editRecurringForm, status: e.target.value })}
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-bold"
+                  >
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="PAUSED">PAUSED</option>
+                    <option value="CANCELLED">CANCELLED</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-slate-700">Frequency *</label>
+                  <select
+                    value={editRecurringForm.frequency}
+                    onChange={(e) => setEditRecurringForm({ ...editRecurringForm, frequency: e.target.value })}
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-black text-emerald-800"
+                  >
+                    {FREQUENCY_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-700">Next Scheduled Service Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={editRecurringForm.next_service_date}
+                    onChange={(e) => setEditRecurringForm({ ...editRecurringForm, next_service_date: e.target.value })}
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-mono font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-slate-700">Preferred Day</label>
+                  <select
+                    value={editRecurringForm.preferred_day}
+                    onChange={(e) => setEditRecurringForm({ ...editRecurringForm, preferred_day: e.target.value })}
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-semibold"
+                  >
+                    <option value="MON">Monday</option>
+                    <option value="TUE">Tuesday</option>
+                    <option value="WED">Wednesday</option>
+                    <option value="THU">Thursday</option>
+                    <option value="FRI">Friday</option>
+                    <option value="SAT">Saturday</option>
+                    <option value="SUN">Sunday</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-700">Preferred Time</label>
+                  <input
+                    type="time"
+                    value={editRecurringForm.preferred_time}
+                    onChange={(e) => setEditRecurringForm({ ...editRecurringForm, preferred_time: e.target.value })}
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-slate-700">Assigned Technician</label>
+                  <select
+                    value={editRecurringForm.technician_id}
+                    onChange={(e) => setEditRecurringForm({ ...editRecurringForm, technician_id: e.target.value })}
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-semibold"
+                  >
+                    <option value="">-- Unassigned --</option>
+                    {staff.filter(s => s.role === 'TECHNICIAN').map(s => (
+                      <option key={s.id} value={s.id}>{s.full_name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-700">Assigned Salesman</label>
+                  <select
+                    value={editRecurringForm.salesman_id}
+                    onChange={(e) => setEditRecurringForm({ ...editRecurringForm, salesman_id: e.target.value })}
+                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden font-semibold"
+                  >
+                    <option value="">-- Unassigned --</option>
+                    {staff.filter(s => s.role === 'SALESMAN').map(s => (
+                      <option key={s.id} value={s.id}>{s.full_name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Sync future pending jobs */}
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-950">
+                  <input
+                    type="checkbox"
+                    checked={editRecurringForm.update_future_jobs}
+                    onChange={(e) => setEditRecurringForm({ ...editRecurringForm, update_future_jobs: e.target.checked })}
+                    className="rounded text-amber-600 focus:ring-amber-500 w-4 h-4"
+                  />
+                  <span>Sync all future pending jobs to this technician and time</span>
+                </label>
+                <p className="text-[10px] text-amber-800 ml-6 mt-0.5">
+                  When enabled, any uncompleted scheduled jobs on the Master Calendar will be updated to the newly selected technician.
+                </p>
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700">Contract Notes</label>
+                <textarea
+                  rows={2}
+                  value={editRecurringForm.notes}
+                  onChange={(e) => setEditRecurringForm({ ...editRecurringForm, notes: e.target.value })}
+                  placeholder="Special instructions or contract details"
+                  className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button type="button" onClick={() => setEditingRecurring(null)} className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition">Cancel</button>
+                <button type="submit" className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs transition">
+                  Save Changes
+                </button>
               </div>
             </form>
           </div>

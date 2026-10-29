@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS recurring_services (
   customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   location_id INTEGER REFERENCES customer_locations(id) ON DELETE SET NULL,
   treatment_id INTEGER NOT NULL REFERENCES treatments(id),
-  frequency TEXT NOT NULL CHECK(frequency IN ('DAILY', 'WEEKLY', 'FORTNIGHTLY', 'MONTHLY', '3 MONTHLY', 'CUSTOM')),
+  frequency TEXT NOT NULL CHECK(frequency IN ('DAILY', 'WEEKLY', 'FORTNIGHTLY', 'BI-WEEKLY', 'TWICE A MONTH', 'MONTHLY', '2 MONTHLY', 'BI-MONTHLY', '3 MONTHLY', 'QUARTERLY', '4 MONTHLY', '6 MONTHLY', 'SEMI-ANNUALLY', 'ANNUALLY', 'YEARLY', 'CUSTOM')),
   preferred_day TEXT,
   preferred_time TEXT,
   duration_minutes INTEGER DEFAULT 60,

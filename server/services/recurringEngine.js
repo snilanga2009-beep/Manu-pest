@@ -30,9 +30,31 @@ function parseDateColombo(dateStr) {
 }
 
 /**
+ * Calculates the first service date aligned to the preferred day of week if specified.
+ * @param {string|Date} startDate - Desired start date (YYYY-MM-DD)
+ * @param {string} [preferredDay] - Optional: MON, TUE, WED, THU, FRI, SAT, SUN
+ * @returns {string} First date in YYYY-MM-DD
+ */
+function calculateFirstServiceDate(startDate, preferredDay = null) {
+  const base = parseDateColombo(startDate || new Date());
+  if (preferredDay) {
+    const norm = String(preferredDay).trim().toUpperCase();
+    if (DAY_MAP[norm] !== undefined) {
+      const targetDay = DAY_MAP[norm];
+      const currentDay = base.getUTCDay();
+      const diff = (targetDay - currentDay + 7) % 7;
+      if (diff > 0) {
+        base.setUTCDate(base.getUTCDate() + diff);
+      }
+    }
+  }
+  return formatDateColombo(base);
+}
+
+/**
  * Calculates the next service date given a base date and frequency parameters.
  * @param {string|Date} baseDate - Last service date or start date (YYYY-MM-DD)
- * @param {string} frequency - DAILY, WEEKLY, FORTNIGHTLY, MONTHLY, 3 MONTHLY, CUSTOM
+ * @param {string} frequency - DAILY, WEEKLY, FORTNIGHTLY, MONTHLY, 3 MONTHLY, 2 MONTHLY, 6 MONTHLY, ANNUALLY, CUSTOM, etc.
  * @param {string} [preferredDay] - Optional: MON, TUE, WED, THU, FRI, SAT, SUN
  * @param {number} [customDays=30] - Optional custom days interval
  * @returns {string} Next date in YYYY-MM-DD
@@ -49,10 +71,21 @@ function calculateNextServiceDate(baseDate, frequency, preferredDay = null, cust
     if (preferredDay) {
       alignToDayOfWeek(target, preferredDay);
     }
-  } else if (freq === 'FORTNIGHTLY') {
+  } else if (freq === 'FORTNIGHTLY' || freq === 'BI-WEEKLY' || freq === 'BIWEEKLY') {
     target.setUTCDate(target.getUTCDate() + 14);
     if (preferredDay) {
       alignToDayOfWeek(target, preferredDay);
+    }
+  } else if (freq === 'TWICE A MONTH' || freq === 'TWICE MONTHLY' || freq === 'SEMI-MONTHLY') {
+    const currentDay = target.getUTCDate();
+    if (currentDay < 15) {
+      target.setUTCDate(15);
+    } else {
+      target.setUTCMonth(target.getUTCMonth() + 1);
+      target.setUTCDate(1);
+    }
+    if (preferredDay) {
+      alignToNearestDayOfWeek(target, preferredDay);
     }
   } else if (freq === 'MONTHLY') {
     const currentDay = target.getUTCDate();
@@ -65,9 +98,45 @@ function calculateNextServiceDate(baseDate, frequency, preferredDay = null, cust
       // Find nearest preferred day within 3 days if requested
       alignToNearestDayOfWeek(target, preferredDay);
     }
+  } else if (freq === '2 MONTHLY' || freq === 'BI-MONTHLY' || freq === 'BIMONTHLY') {
+    const currentDay = target.getUTCDate();
+    target.setUTCMonth(target.getUTCMonth() + 2);
+    if (target.getUTCDate() !== currentDay) {
+      target.setUTCDate(0);
+    }
+    if (preferredDay) {
+      alignToNearestDayOfWeek(target, preferredDay);
+    }
   } else if (freq === '3 MONTHLY' || freq === '3MONTHLY' || freq === 'QUARTERLY') {
     const currentDay = target.getUTCDate();
     target.setUTCMonth(target.getUTCMonth() + 3);
+    if (target.getUTCDate() !== currentDay) {
+      target.setUTCDate(0);
+    }
+    if (preferredDay) {
+      alignToNearestDayOfWeek(target, preferredDay);
+    }
+  } else if (freq === '4 MONTHLY' || freq === '4MONTHLY') {
+    const currentDay = target.getUTCDate();
+    target.setUTCMonth(target.getUTCMonth() + 4);
+    if (target.getUTCDate() !== currentDay) {
+      target.setUTCDate(0);
+    }
+    if (preferredDay) {
+      alignToNearestDayOfWeek(target, preferredDay);
+    }
+  } else if (freq === '6 MONTHLY' || freq === 'SEMI-ANNUALLY' || freq === 'BI-ANNUAL' || freq === 'TWICE A YEAR') {
+    const currentDay = target.getUTCDate();
+    target.setUTCMonth(target.getUTCMonth() + 6);
+    if (target.getUTCDate() !== currentDay) {
+      target.setUTCDate(0);
+    }
+    if (preferredDay) {
+      alignToNearestDayOfWeek(target, preferredDay);
+    }
+  } else if (freq === 'ANNUALLY' || freq === 'YEARLY' || freq === '12 MONTHLY') {
+    const currentDay = target.getUTCDate();
+    target.setUTCFullYear(target.getUTCFullYear() + 1);
     if (target.getUTCDate() !== currentDay) {
       target.setUTCDate(0);
     }
@@ -394,7 +463,118 @@ function runDailyAutomation() {
   };
 }
 
+
+/**
+ * Generates a sequence of recurring jobs for a recurring service across an operational horizon.
+ * @param {number} recurringServiceId - ID of recurring service
+ * @param {object} options - { horizonMonths = 3, maxJobs = 36, firstDate = null }
+ * @returns {Array} List of newly created jobs
+ */
+function generateRecurringScheduleSequence(recurringServiceId, options = {}) {
+  const service = db.prepare(`
+    SELECT r.*, c.customer_code, c.name as customer_name, c.special_instructions,
+           l.location_name, l.address as location_address,
+           t.code as treatment_code, t.default_duration_minutes,
+           tech.full_name as technician_name,
+           sales.full_name as salesman_name
+    FROM recurring_services r
+    JOIN customers c ON r.customer_id = c.id
+    LEFT JOIN customer_locations l ON r.location_id = l.id
+    JOIN treatments t ON r.treatment_id = t.id
+    LEFT JOIN staff tech ON r.technician_id = tech.id
+    LEFT JOIN staff sales ON r.salesman_id = sales.id
+    WHERE r.id = ?
+  `).get(recurringServiceId);
+
+  if (!service) return [];
+
+  const horizonMonths = options.horizonMonths !== undefined ? options.horizonMonths : 3;
+  const maxJobs = options.maxJobs || (service.frequency === 'DAILY' ? 90 : 36);
+
+  let currentDate = options.firstDate || service.next_service_date || service.start_date || formatDateColombo(new Date());
+  
+  const horizonCutoff = parseDateColombo(currentDate);
+  horizonCutoff.setUTCMonth(horizonCutoff.getUTCMonth() + horizonMonths);
+  const cutoffDateStr = formatDateColombo(horizonCutoff);
+
+  const checkExisting = db.prepare(`
+    SELECT id FROM jobs WHERE recurring_service_id = ? AND scheduled_date = ?
+  `);
+
+  const insertJob = db.prepare(`
+    INSERT INTO jobs (
+      job_code, recurring_service_id, customer_id, location_id, treatment_id,
+      technician_id, salesman_id, scheduled_date, scheduled_time, duration_minutes,
+      status, technician_notes
+    ) VALUES (
+      @job_code, @recurring_service_id, @customer_id, @location_id, @treatment_id,
+      @technician_id, @salesman_id, @scheduled_date, @scheduled_time, @duration_minutes,
+      @status, @technician_notes
+    )
+  `);
+
+  const logJobAction = db.prepare(`
+    INSERT INTO job_logs (job_id, action, notes)
+    VALUES (?, 'GENERATED_FROM_RECURRING', 'Automated recurring engine schedule generation')
+  `);
+
+  const createdJobs = [];
+
+  const tx = db.transaction(() => {
+    let loopCount = 0;
+    while (currentDate <= cutoffDateStr && loopCount < maxJobs) {
+      loopCount++;
+      const existing = checkExisting.get(service.id, currentDate);
+      if (!existing) {
+        const jobCode = generateJobCode(currentDate);
+        const jobStatus = service.technician_id ? 'ASSIGNED' : 'TO_BE_DONE';
+        const jobData = {
+          job_code: jobCode,
+          recurring_service_id: service.id,
+          customer_id: service.customer_id,
+          location_id: service.location_id,
+          treatment_id: service.treatment_id,
+          technician_id: service.technician_id,
+          salesman_id: service.salesman_id,
+          scheduled_date: currentDate,
+          scheduled_time: service.preferred_time || '09:00',
+          duration_minutes: service.duration_minutes || service.default_duration_minutes || 60,
+          status: jobStatus,
+          technician_notes: service.notes || service.special_instructions || ('Scheduled ' + service.frequency + ' service')
+        };
+
+        const res = insertJob.run(jobData);
+        logJobAction.run(res.lastInsertRowid);
+        createdJobs.push({ id: res.lastInsertRowid, job_code: jobCode, ...jobData });
+      }
+
+      const nextDate = calculateNextServiceDate(currentDate, service.frequency, service.preferred_day);
+      if (nextDate <= currentDate) {
+        break;
+      }
+      currentDate = nextDate;
+    }
+
+    // Update recurring service next_service_date to the earliest uncompleted job date
+    const earliestPending = db.prepare(`
+      SELECT scheduled_date FROM jobs
+      WHERE recurring_service_id = ? AND status IN ('TO_BE_DONE', 'ASSIGNED')
+      ORDER BY scheduled_date ASC LIMIT 1
+    `).get(service.id);
+
+    const updatedNext = earliestPending ? earliestPending.scheduled_date : currentDate;
+    db.prepare(`
+      UPDATE recurring_services SET next_service_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).run(updatedNext, service.id);
+  });
+
+  tx();
+  return createdJobs;
+}
+
 module.exports = {
+  calculateFirstServiceDate,
+  generateRecurringScheduleSequence,
   formatDateColombo,
   parseDateColombo,
   calculateNextServiceDate,

@@ -47,7 +47,8 @@ function handleCalendarRequest(req, res) {
 
   const jobs = db.prepare(`
     SELECT j.id, j.job_code, j.scheduled_date, j.scheduled_time, j.duration_minutes,
-           j.status, j.technician_notes,
+           j.status, j.technician_notes, j.recurring_service_id, j.technician_id,
+           j.crew_count, j.workers_info,
            c.name as customer_name, c.customer_code, c.phone as customer_phone,
            l.location_name,
            t.code as treatment_code, t.name as treatment_name, t.color_hex as treatment_color,

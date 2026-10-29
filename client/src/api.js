@@ -69,6 +69,8 @@ export const getRecurringServices = (params = {}) => {
 };
 export const createRecurringService = (data) => fetchJson('/recurring', { method: 'POST', body: data });
 export const updateRecurringService = (id, data) => fetchJson(`/recurring/${id}`, { method: 'PUT', body: data });
+export const deleteRecurringService = (id, cancelFutureJobs = true) => fetchJson(`/recurring/${id}?cancel_future_jobs=${cancelFutureJobs}`, { method: 'DELETE' });
+export const generateRecurringSchedule = (id, horizonMonths = 3) => fetchJson(`/recurring/${id}/generate-schedule`, { method: 'POST', body: { horizon_months: horizonMonths } });
 export const previewNextDate = (baseDate, frequency, preferredDay) => {
   const q = new URLSearchParams({ base_date: baseDate, frequency, preferred_day: preferredDay || '' }).toString();
   return fetchJson(`/recurring/calculate-next?${q}`);

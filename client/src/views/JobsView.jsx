@@ -991,6 +991,37 @@ export default function JobsView({
                 </div>
               </div>
 
+              {/* Quick Assign / Reassign Technician Control */}
+              {!isTechnicianMode && (
+                <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+                  <div>
+                    <span className="text-[10px] font-black text-emerald-800 uppercase tracking-wider block">Lead Technician Assignment</span>
+                    <span className="text-xs text-slate-600 font-medium">Assign or change the field technician for this job</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={selectedJob.technician_id || ''}
+                      onChange={async (e) => {
+                        const newTechId = e.target.value;
+                        try {
+                          await assignJob(selectedJob.id, newTechId || null);
+                          loadJobDetails(selectedJob.id);
+                          loadJobs();
+                        } catch (err) {
+                          alert('Error assigning technician: ' + err.message);
+                        }
+                      }}
+                      className="text-xs bg-white border border-emerald-300 rounded-xl px-3 py-2 font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 shadow-2xs"
+                    >
+                      <option value="">-- Unassigned --</option>
+                      {staff.filter(s => s.role === 'TECHNICIAN').map(s => (
+                        <option key={s.id} value={s.id}>{s.full_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
               {/* Field Crew & Accompanying Labourers Allocation Card */}
               {(() => {
                 let workers = [];

@@ -5,7 +5,7 @@ import {
   Edit, Sparkles, Check, ChevronDown, Eye, CalendarDays,
   Zap, ArrowRight, X, Phone, Layers, ShieldCheck, Users, HardHat
 } from 'lucide-react';
-import { getCalendarEvents, getStaff, getTreatments } from '../api';
+import { getCalendarEvents, getStaff, getTreatments, assignJob } from '../api';
 import EditJobModal from '../components/EditJobModal';
 
 export default function CalendarView({
@@ -852,20 +852,60 @@ export default function CalendarView({
                             <span>{job.location_name} {job.location_address ? `(${job.location_address})` : ''}</span>
                           </div>
                         )}
-                        {job.technician_name && (
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <User className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>Technician: <strong className="text-slate-800">{job.technician_name}</strong></span>
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                          {job.technician_name ? (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded-lg border border-emerald-200">
+                                <User className="w-3.5 h-3.5 text-emerald-600" />
+                                <span className="text-xs">Tech: <strong className="text-emerald-950">{job.technician_name}</strong></span>
+                              </div>
+                              {(job.crew_count > 1 || job.workers_info) && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold text-[10px] border border-indigo-200">
+                                  <HardHat className="w-3 h-3 text-indigo-600" />
+                                  <span>{job.crew_count || 1} Crew</span>
+                                </span>
+                              )}
                             </div>
-                            {(job.crew_count > 1 || job.workers_info) && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold text-[10px] border border-indigo-200">
-                                <HardHat className="w-3 h-3 text-indigo-600" />
-                                <span>{job.crew_count || 1} Total Crew</span>
-                              </span>
-                            )}
-                          </div>
-                        )}
+                          ) : (
+                            <span className="text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 text-[11px] font-bold">
+                              Unassigned Technician
+                            </span>
+                          )}
+
+                          {!isTechnicianMode && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] uppercase font-bold text-slate-400">Assign:</span>
+                              <select
+                                value={job.technician_id || ''}
+                                onChange={async (e) => {
+                                  const newTechId = e.target.value;
+                                  try {
+                                    await assignJob(job.id, newTechId || null);
+                                    const assignedTechName = staff.find(s => String(s.id) === String(newTechId))?.full_name || null;
+                                    setSelectedDayEvents(prev => prev ? {
+                                      ...prev,
+                                      events: prev.events.map(ev => ev.id === job.id ? {
+                                        ...ev,
+                                        technician_id: newTechId || null,
+                                        technician_name: assignedTechName,
+                                        status: newTechId && ev.status === 'TO_BE_DONE' ? 'ASSIGNED' : ev.status
+                                      } : ev)
+                                    } : null);
+                                    loadEvents();
+                                  } catch (err) {
+                                    alert('Error assigning technician: ' + err.message);
+                                  }
+                                }}
+                                className="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 font-bold text-slate-800 focus:outline-hidden focus:border-emerald-500 shadow-2xs"
+                              >
+                                <option value="">-- Unassigned --</option>
+                                {staff.filter(s => s.role === 'TECHNICIAN').map(s => (
+                                  <option key={s.id} value={s.id}>{s.full_name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
 
                         {job.special_instructions && (
                           <div className="mt-1.5 p-2 bg-amber-50/80 border border-amber-200 rounded-xl text-[11px] text-amber-900 leading-relaxed">
