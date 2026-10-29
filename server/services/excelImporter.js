@@ -6,6 +6,12 @@ const { calculateNextServiceDate, generateJobCode, formatDateColombo } = require
 /**
  * Convert Excel serial date or text date into YYYY-MM-DD
  */
+function clampDate(year, month, day) {
+  const maxDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const validDay = Math.min(Math.max(1, day), maxDays);
+  return `${year}-${String(month).padStart(2, '0')}-${String(validDay).padStart(2, '0')}`;
+}
+
 function parseExcelDate(val, defaultYear = 2026, defaultMonth = 6) {
   if (val === undefined || val === null || val === '') return null;
 
@@ -19,9 +25,7 @@ function parseExcelDate(val, defaultYear = 2026, defaultMonth = 6) {
     }
     // If just day of month (e.g. 5, 16)
     if (val >= 1 && val <= 31) {
-      const m = String(defaultMonth).padStart(2, '0');
-      const d = String(Math.floor(val)).padStart(2, '0');
-      return `${defaultYear}-${m}-${d}`;
+      return clampDate(defaultYear, defaultMonth, Math.floor(val));
     }
   }
 
@@ -30,25 +34,28 @@ function parseExcelDate(val, defaultYear = 2026, defaultMonth = 6) {
   if (/^\d+$/.test(str)) {
     const num = parseInt(str, 10);
     if (num >= 1 && num <= 31) {
-      const m = String(defaultMonth).padStart(2, '0');
-      const d = String(num).padStart(2, '0');
-      return `${defaultYear}-${m}-${d}`;
+      return clampDate(defaultYear, defaultMonth, num);
     }
   }
 
   // Format like "13 (2.00 PM)" or "14 (9.00 AM)"
-  const dayMatch = str.match(/^(\d{1,2})\s*(\(.*\))?/);
+  const dayMatch = str.match(/^(\d{1,2})\s*(\([^)]*\))?/);
   if (dayMatch) {
     const day = parseInt(dayMatch[1], 10);
     if (day >= 1 && day <= 31) {
-      const m = String(defaultMonth).padStart(2, '0');
-      const d = String(day).padStart(2, '0');
-      return `${defaultYear}-${m}-${d}`;
+      return clampDate(defaultYear, defaultMonth, day);
     }
   }
 
   // ISO string
   if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    const parts = str.substring(0, 10).split('-');
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const d = parseInt(parts[2], 10);
+      return clampDate(y, m, d);
+    }
     return str.substring(0, 10);
   }
 
