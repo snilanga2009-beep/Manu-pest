@@ -114,11 +114,15 @@ router.get('/:id', (req, res) => {
     SELECT j.*, 
            l.location_name,
            t.code as treatment_code, t.name as treatment_name, t.color_hex as treatment_color,
-           tech.full_name as technician_name, tech.phone as technician_phone
+           tech.full_name as technician_name, tech.phone as technician_phone,
+           v.vehicle_number, v.vehicle_type,
+           m.machine_type
     FROM jobs j
     LEFT JOIN customer_locations l ON j.location_id = l.id
     JOIN treatments t ON j.treatment_id = t.id
     LEFT JOIN staff tech ON j.technician_id = tech.id
+    LEFT JOIN vehicles v ON j.vehicle_id = v.id
+    LEFT JOIN machines m ON j.machine_id = m.id
     WHERE j.customer_id = ?
   `;
   const timelineParams = [id];

@@ -42,6 +42,9 @@ app.use('/api/tech-auth', require('./routes/techAuth'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/branding', require('./routes/branding'));
 app.use('/api/backup', require('./routes/backup'));
+app.use('/api/fleet', require('./routes/fleet'));
+app.use('/api/vehicles', (req, res, next) => { req.url = '/vehicles' + req.url; require('./routes/fleet')(req, res, next); });
+app.use('/api/machines', (req, res, next) => { req.url = '/machines' + req.url; require('./routes/fleet')(req, res, next); });
 
 // Initialize automated monthly backup system
 const { initBackupSystem } = require('./services/backupService');

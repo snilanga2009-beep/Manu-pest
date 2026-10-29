@@ -131,7 +131,9 @@ router.get('/', (req, res) => {
            t.code as treatment_code, t.name as treatment_name, t.color_hex as treatment_color,
            tech.full_name as technician_name, tech.phone as technician_phone,
            sales.full_name as salesman_name,
-           r.frequency as recurring_frequency
+           r.frequency as recurring_frequency,
+           v.vehicle_type, v.vehicle_number,
+           m.machine_type
     FROM jobs j
     JOIN customers c ON j.customer_id = c.id
     LEFT JOIN customer_locations l ON j.location_id = l.id
@@ -139,6 +141,8 @@ router.get('/', (req, res) => {
     LEFT JOIN staff tech ON j.technician_id = tech.id
     LEFT JOIN staff sales ON j.salesman_id = sales.id
     LEFT JOIN recurring_services r ON j.recurring_service_id = r.id
+    LEFT JOIN vehicles v ON j.vehicle_id = v.id
+    LEFT JOIN machines m ON j.machine_id = m.id
     WHERE ${whereSql}
     ORDER BY j.scheduled_date ASC, j.scheduled_time ASC, j.id ASC
     LIMIT ? OFFSET ?
@@ -165,7 +169,9 @@ router.get('/:id', (req, res) => {
            t.code as treatment_code, t.name as treatment_name, t.color_hex as treatment_color,
            tech.full_name as technician_name, tech.phone as technician_phone,
            sales.full_name as salesman_name,
-           r.frequency as recurring_frequency, r.preferred_day, r.preferred_time
+           r.frequency as recurring_frequency, r.preferred_day, r.preferred_time,
+           v.vehicle_type, v.vehicle_number,
+           m.machine_type
     FROM jobs j
     JOIN customers c ON j.customer_id = c.id
     LEFT JOIN customer_locations l ON j.location_id = l.id
@@ -173,6 +179,8 @@ router.get('/:id', (req, res) => {
     LEFT JOIN staff tech ON j.technician_id = tech.id
     LEFT JOIN staff sales ON j.salesman_id = sales.id
     LEFT JOIN recurring_services r ON j.recurring_service_id = r.id
+    LEFT JOIN vehicles v ON j.vehicle_id = v.id
+    LEFT JOIN machines m ON j.machine_id = m.id
     WHERE j.id = ? OR j.job_code = ?
   `).get(id, id);
 
@@ -197,6 +205,7 @@ router.post('/', async (req, res) => {
   const {
     customer_id, location_id, treatment_id, technician_id, salesman_id,
     scheduled_date, scheduled_time, duration_minutes, crew_count, workers_info, notes,
+    vehicle_id, vehicle_no, machine_id, machine_name, team_members,
     send_sms = false
   } = req.body;
 
@@ -234,8 +243,9 @@ router.post('/', async (req, res) => {
         job_code, customer_id, location_id, treatment_id, technician_id,
         salesman_id, scheduled_date, scheduled_time, duration_minutes,
         crew_count, workers_info,
+        vehicle_id, vehicle_no, machine_id, machine_name, team_members,
         status, technician_notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'TO_BE_DONE', ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'TO_BE_DONE', ?)
     `).run(
       jobCode,
       customer_id,
@@ -248,6 +258,11 @@ router.post('/', async (req, res) => {
       duration_minutes || 60,
       crew_count ? parseInt(crew_count, 10) : 1,
       workersJson,
+      vehicle_id ? parseInt(vehicle_id, 10) : null,
+      vehicle_no ? String(vehicle_no).trim() : null,
+      machine_id ? parseInt(machine_id, 10) : null,
+      machine_name ? String(machine_name).trim() : null,
+      team_members ? String(team_members).trim() : null,
       notes || ''
     );
 
@@ -274,7 +289,9 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const {
     customer_id, location_id, treatment_id, technician_id, salesman_id,
-    scheduled_date, scheduled_time, duration_minutes, crew_count, workers_info, status, technician_notes,
+    scheduled_date, scheduled_time, duration_minutes, crew_count, workers_info,
+    vehicle_id, vehicle_no, machine_id, machine_name, team_members,
+    status, technician_notes,
     send_sms
   } = req.body;
 
@@ -293,13 +310,18 @@ router.put('/:id', async (req, res) => {
         customer_id = COALESCE(?, customer_id),
         location_id = COALESCE(?, location_id),
         treatment_id = COALESCE(?, treatment_id),
-        technician_id = COALESCE(?, technician_id),
-        salesman_id = COALESCE(?, salesman_id),
+        technician_id = CASE WHEN ? IS NOT NULL THEN ? ELSE technician_id END,
+        salesman_id = CASE WHEN ? IS NOT NULL THEN ? ELSE salesman_id END,
         scheduled_date = COALESCE(?, scheduled_date),
         scheduled_time = COALESCE(?, scheduled_time),
         duration_minutes = COALESCE(?, duration_minutes),
         crew_count = COALESCE(?, crew_count),
         workers_info = CASE WHEN ? IS NOT NULL THEN ? ELSE workers_info END,
+        vehicle_id = CASE WHEN ? IS NOT NULL THEN ? ELSE vehicle_id END,
+        vehicle_no = CASE WHEN ? IS NOT NULL THEN ? ELSE vehicle_no END,
+        machine_id = CASE WHEN ? IS NOT NULL THEN ? ELSE machine_id END,
+        machine_name = CASE WHEN ? IS NOT NULL THEN ? ELSE machine_name END,
+        team_members = CASE WHEN ? IS NOT NULL THEN ? ELSE team_members END,
         status = COALESCE(?, status),
         technician_notes = COALESCE(?, technician_notes),
         updated_at = CURRENT_TIMESTAMP
@@ -308,14 +330,26 @@ router.put('/:id', async (req, res) => {
       customer_id || null,
       location_id || null,
       treatment_id || null,
-      technician_id !== undefined ? (technician_id || null) : null,
-      salesman_id !== undefined ? (salesman_id || null) : null,
+      technician_id !== undefined ? 1 : null,
+      technician_id || null,
+      salesman_id !== undefined ? 1 : null,
+      salesman_id || null,
       scheduled_date || null,
       scheduled_time || null,
       duration_minutes ? parseInt(duration_minutes, 10) : null,
       crew_count ? parseInt(crew_count, 10) : null,
       workers_info !== undefined ? 1 : null,
       workersJson,
+      vehicle_id !== undefined ? 1 : null,
+      vehicle_id ? parseInt(vehicle_id, 10) : null,
+      vehicle_no !== undefined ? 1 : null,
+      vehicle_no || null,
+      machine_id !== undefined ? 1 : null,
+      machine_id ? parseInt(machine_id, 10) : null,
+      machine_name !== undefined ? 1 : null,
+      machine_name || null,
+      team_members !== undefined ? 1 : null,
+      team_members || null,
       status ? status.toUpperCase() : null,
       technician_notes !== undefined ? technician_notes : null,
       id
@@ -331,13 +365,17 @@ router.put('/:id', async (req, res) => {
              l.location_name, l.address as location_address, l.latitude, l.longitude,
              t.code as treatment_code, t.name as treatment_name, t.color_hex as treatment_color,
              tech.full_name as technician_name, tech.phone as technician_phone,
-             sales.full_name as salesman_name
+             sales.full_name as salesman_name,
+             v.vehicle_number, v.vehicle_type,
+             m.machine_type
       FROM jobs j
       JOIN customers c ON j.customer_id = c.id
       LEFT JOIN customer_locations l ON j.location_id = l.id
       JOIN treatments t ON j.treatment_id = t.id
       LEFT JOIN staff tech ON j.technician_id = tech.id
       LEFT JOIN staff sales ON j.salesman_id = sales.id
+      LEFT JOIN vehicles v ON j.vehicle_id = v.id
+      LEFT JOIN machines m ON j.machine_id = m.id
       WHERE j.id = ?
     `).get(id);
 
@@ -363,7 +401,7 @@ router.put('/:id', async (req, res) => {
 // Assign or reassign technician
 router.put('/:id/assign', async (req, res) => {
   const { id } = req.params;
-  const { technician_id, crew_count, workers_info, send_sms = false } = req.body;
+  const { technician_id, crew_count, workers_info, vehicle_id, vehicle_no, machine_id, machine_name, team_members, send_sms = false } = req.body;
 
   try {
     const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
@@ -378,6 +416,11 @@ router.put('/:id/assign', async (req, res) => {
         technician_id = ?,
         crew_count = COALESCE(?, crew_count),
         workers_info = CASE WHEN ? IS NOT NULL THEN ? ELSE workers_info END,
+        vehicle_id = CASE WHEN ? IS NOT NULL THEN ? ELSE vehicle_id END,
+        vehicle_no = CASE WHEN ? IS NOT NULL THEN ? ELSE vehicle_no END,
+        machine_id = CASE WHEN ? IS NOT NULL THEN ? ELSE machine_id END,
+        machine_name = CASE WHEN ? IS NOT NULL THEN ? ELSE machine_name END,
+        team_members = CASE WHEN ? IS NOT NULL THEN ? ELSE team_members END,
         status = CASE WHEN status = 'TO_BE_DONE' THEN 'ASSIGNED' ELSE status END,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
@@ -386,6 +429,16 @@ router.put('/:id/assign', async (req, res) => {
       crew_count ? parseInt(crew_count, 10) : null,
       workers_info !== undefined ? 1 : null,
       workersJson,
+      vehicle_id !== undefined ? 1 : null,
+      vehicle_id ? parseInt(vehicle_id, 10) : null,
+      vehicle_no !== undefined ? 1 : null,
+      vehicle_no || null,
+      machine_id !== undefined ? 1 : null,
+      machine_id ? parseInt(machine_id, 10) : null,
+      machine_name !== undefined ? 1 : null,
+      machine_name || null,
+      team_members !== undefined ? 1 : null,
+      team_members || null,
       id
     );
 

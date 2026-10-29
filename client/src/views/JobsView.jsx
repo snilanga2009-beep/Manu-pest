@@ -4,10 +4,10 @@ import {
   PlayCircle, CheckCircle2, Clock, AlertTriangle, XCircle,
   MapPin, Phone, User, Check, X, Camera, PenTool, Edit, UserPlus,
   Users, HardHat, Copy, Send, ExternalLink, MessageSquare, Smartphone, Sparkles, Lock,
-  RefreshCw, Building, CheckCircle
+  RefreshCw, Building, CheckCircle, Truck, Cpu, Wrench
 } from 'lucide-react';
 import {
-  getJobs, getJobById, createJob, assignJob, bulkAssignJobs,
+  getJobs, getJobById, createJob, assignJob, bulkAssignJobs, getVehicles, getMachines, createVehicle, createMachine,
   startJob, completeJob, postponeJob, cancelJob,
   getStaff, getTreatments, getCustomers, getCustomerById, sendTechDispatchSms
 } from '../api';
@@ -76,6 +76,58 @@ export default function JobsView({
       }
     }
   }, [isTechnicianMode, currentTechnicianId]);
+
+  // Create Modal Fleet & Machinery states
+  const [createVehiclesList, setCreateVehiclesList] = useState([]);
+  const [createMachinesList, setCreateMachinesList] = useState([]);
+  const [loadingCreateFleet, setLoadingCreateFleet] = useState(false);
+  const [isCustomCreateVehicle, setIsCustomCreateVehicle] = useState(false);
+  const [isCustomCreateMachine, setIsCustomCreateMachine] = useState(false);
+
+  useEffect(() => {
+    if (newJobForm.scheduled_date && showCreateModal) {
+      setLoadingCreateFleet(true);
+      Promise.all([
+        getVehicles({ scheduled_date: newJobForm.scheduled_date }),
+        getMachines({ scheduled_date: newJobForm.scheduled_date })
+      ]).then(([vRes, mRes]) => {
+        setCreateVehiclesList(vRes.vehicles || []);
+        setCreateMachinesList(mRes.machines || []);
+      }).catch(console.error).finally(() => setLoadingCreateFleet(false));
+    }
+  }, [newJobForm.scheduled_date, showCreateModal]);
+
+  const handleAddNewVehicleForCreate = async () => {
+    const num = prompt('Enter Vehicle Registration Number (e.g. WP CAD-5120):');
+    if (!num || !num.trim()) return;
+    const type = prompt('Enter Vehicle Type (e.g. Van, Double Cab, Lorry, Motorbike, Three-Wheeler):', 'Van');
+    try {
+      const res = await createVehicle({ vehicle_number: num.trim().toUpperCase(), vehicle_type: type?.trim() || 'Van' });
+      if (res.success && res.vehicle) {
+        setCreateVehiclesList(prev => [...prev, { ...res.vehicle, is_available: true }]);
+        setNewJobForm(prev => ({ ...prev, vehicle_id: res.vehicle.id, vehicle_no: res.vehicle.vehicle_number }));
+        setIsCustomCreateVehicle(false);
+      }
+    } catch (err) {
+      alert('Error adding vehicle: ' + err.message);
+    }
+  };
+
+  const handleAddNewMachineForCreate = async () => {
+    const name = prompt('Enter Machine / Equipment Name (e.g. Thermal Fogger TF-35):');
+    if (!name || !name.trim()) return;
+    const type = prompt('Enter Machine Type (e.g. Thermal Fogger, ULV Sprayer, Hand Sprayer):', 'Fogger');
+    try {
+      const res = await createMachine({ machine_name: name.trim(), machine_type: type?.trim() || 'Fogger' });
+      if (res.success && res.machine) {
+        setCreateMachinesList(prev => [...prev, { ...res.machine, is_available: true }]);
+        setNewJobForm(prev => ({ ...prev, machine_id: res.machine.id, machine_name: res.machine.machine_name }));
+        setIsCustomCreateMachine(false);
+      }
+    } catch (err) {
+      alert('Error adding machine: ' + err.message);
+    }
+  };
 
   // Selected job for detail modal
   const [selectedJob, setSelectedJob] = useState(null);
@@ -156,7 +208,8 @@ export default function JobsView({
   const [newJobForm, setNewJobForm] = useState({
     customer_id: '', location_id: '', treatment_id: '', technician_id: '',
     salesman_id: '', scheduled_date: colomboToday,
-    scheduled_time: '09:00', duration_minutes: 60, crew_count: 1, notes: ''
+    scheduled_time: '09:00', duration_minutes: 60, crew_count: 1, notes: '',
+    vehicle_id: '', vehicle_no: '', machine_id: '', machine_name: '', team_members: ''
   });
 
   const loadAllCustomers = async () => {
@@ -175,10 +228,13 @@ export default function JobsView({
     setNewJobForm({
       customer_id: '', location_id: '', treatment_id: '', technician_id: '',
       salesman_id: '', scheduled_date: colomboToday,
-      scheduled_time: '09:00', duration_minutes: 60, crew_count: 1, notes: ''
+      scheduled_time: '09:00', duration_minutes: 60, crew_count: 1, notes: '',
+      vehicle_id: '', vehicle_no: '', machine_id: '', machine_name: '', team_members: ''
     });
     setCustomerSearchQuery('');
     setCustomerLocations([]);
+    setIsCustomCreateVehicle(false);
+    setIsCustomCreateMachine(false);
   };
 
   const handleSelectCustomerForNewJob = async (customerId) => {
@@ -820,6 +876,20 @@ export default function JobsView({
                             </span>
                           )}
                         </div>
+                        {((job.vehicle_no || job.vehicle_number) || (job.machine_name || job.machine_type)) && (
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                            {(job.vehicle_no || job.vehicle_number) && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-blue-50 text-blue-800 text-[9px] font-bold border border-blue-200">
+                                🚗 {job.vehicle_no || job.vehicle_number}
+                              </span>
+                            )}
+                            {(job.machine_name || job.machine_type) && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-purple-50 text-purple-800 text-[9px] font-bold border border-purple-200">
+                                ⚙️ {job.machine_name || job.machine_type}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <span className="text-amber-500 font-semibold italic text-[11px]">Unassigned</span>
@@ -1244,6 +1314,74 @@ export default function JobsView({
                   </div>
                 );
               })()}
+
+              {/* Fleet Transport, Machinery & Assigned Personnel Card */}
+              <div className="p-4 bg-gradient-to-br from-blue-50/70 via-indigo-50/50 to-slate-50 rounded-2xl border border-blue-200/80 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black shadow-xs">
+                      <Truck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">Fleet & Equipment Assignment</h4>
+                      <p className="text-[11px] text-slate-500">Transport vehicle, machinery and team persons</p>
+                    </div>
+                  </div>
+                  {!isTechnicianMode && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingJob(selectedJob)}
+                      className="px-2.5 py-1 bg-white hover:bg-blue-50 text-blue-700 font-bold rounded-lg text-[11px] border border-blue-200 shadow-2xs transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Edit className="w-3 h-3 text-blue-600" /> Edit / Change
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div className="p-2.5 bg-white rounded-xl border border-slate-200 space-y-0.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
+                      <Truck className="w-3 h-3 text-blue-600" /> Assigned Vehicle
+                    </span>
+                    <div className="font-bold text-slate-900">
+                      {selectedJob.vehicle_no || selectedJob.vehicle_number ? (
+                        <span className="text-blue-900 flex items-center gap-1">
+                          <span>🚗 {selectedJob.vehicle_no || selectedJob.vehicle_number}</span>
+                          {selectedJob.vehicle_type && <span className="text-[10px] text-blue-600 font-normal">({selectedJob.vehicle_type})</span>}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 font-normal italic">None Assigned</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-white rounded-xl border border-slate-200 space-y-0.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
+                      <Wrench className="w-3 h-3 text-purple-600" /> Assigned Machine / Fogger
+                    </span>
+                    <div className="font-bold text-slate-900">
+                      {selectedJob.machine_name || selectedJob.machine_type ? (
+                        <span className="text-purple-900 flex items-center gap-1">
+                          <span>⚙️ {selectedJob.machine_name || selectedJob.machine_type}</span>
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 font-normal italic">Standard Sprayer / None</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {selectedJob.team_members && (
+                  <div className="p-2.5 bg-white rounded-xl border border-slate-200 space-y-0.5 text-xs">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
+                      <Users className="w-3 h-3 text-indigo-600" /> Team Person Names
+                    </span>
+                    <div className="font-bold text-slate-800">
+                      👥 {selectedJob.team_members}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Customer Contact & Call */}
               {selectedJob.customer_phone && (
@@ -1742,6 +1880,131 @@ export default function JobsView({
                     onChange={(e) => setNewJobForm({ ...newJobForm, crew_count: parseInt(e.target.value) || 1 })}
                     className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
                     placeholder="1"
+                  />
+                </div>
+              </div>
+
+              {/* Vehicle & Machine Selection with Live Availability */}
+              <div className="p-3 bg-gradient-to-br from-blue-50/70 to-indigo-50/50 rounded-2xl border border-blue-200/80 space-y-3">
+                <div className="flex items-center justify-between text-[11px] font-bold text-blue-950 uppercase tracking-wider">
+                  <span className="flex items-center gap-1.5">
+                    <Truck className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Vehicle, Machine & Team Assignment</span>
+                  </span>
+                  {loadingCreateFleet && (
+                    <span className="text-[10px] text-blue-600 font-normal animate-pulse">Checking Fleet...</span>
+                  )}
+                </div>
+
+                {/* Vehicle Selection */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-slate-700 text-xs">Vehicle / Transport</label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsCustomCreateVehicle(!isCustomCreateVehicle)}
+                        className="text-[10px] text-blue-700 hover:text-blue-900 underline font-semibold cursor-pointer"
+                      >
+                        {isCustomCreateVehicle ? "Choose from Fleet" : "+ Custom Vehicle"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAddNewVehicleForCreate}
+                        className="text-[10px] bg-white text-blue-700 px-2 py-0.5 rounded-lg border border-blue-200 hover:bg-blue-50 font-bold shadow-2xs cursor-pointer"
+                      >
+                        + New Vehicle
+                      </button>
+                    </div>
+                  </div>
+                  {isCustomCreateVehicle ? (
+                    <input
+                      type="text"
+                      placeholder="Type custom vehicle number (e.g. WP CAD-5120)"
+                      value={newJobForm.vehicle_no}
+                      onChange={(e) => setNewJobForm({ ...newJobForm, vehicle_no: e.target.value.toUpperCase(), vehicle_id: "" })}
+                      className="w-full p-2 bg-white rounded-xl border border-blue-300 font-semibold focus:outline-hidden text-xs"
+                    />
+                  ) : (
+                    <select
+                      value={newJobForm.vehicle_id}
+                      onChange={(e) => {
+                        const vid = e.target.value;
+                        const v = createVehiclesList.find(x => String(x.id) === String(vid));
+                        setNewJobForm({ ...newJobForm, vehicle_id: vid, vehicle_no: v ? v.vehicle_number : "" });
+                      }}
+                      className="w-full p-2 bg-white rounded-xl border border-slate-200 focus:outline-hidden text-xs font-medium"
+                    >
+                      <option value="">-- No Vehicle Assigned --</option>
+                      {createVehiclesList.map(v => (
+                        <option key={v.id} value={v.id}>
+                          {v.vehicle_number} ({v.vehicle_type || "Vehicle"}) - {v.is_available ? "✓ AVAILABLE" : ("⚠️ OCCUPIED (" + (v.conflict_job?.job_code || "Busy") + ")")}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Machine Selection */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-slate-700 text-xs">Machine / Fogger / Sprayer</label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsCustomCreateMachine(!isCustomCreateMachine)}
+                        className="text-[10px] text-purple-700 hover:text-purple-900 underline font-semibold cursor-pointer"
+                      >
+                        {isCustomCreateMachine ? "Choose from List" : "+ Custom Machine"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAddNewMachineForCreate}
+                        className="text-[10px] bg-white text-purple-700 px-2 py-0.5 rounded-lg border border-purple-200 hover:bg-purple-50 font-bold shadow-2xs cursor-pointer"
+                      >
+                        + New Machine
+                      </button>
+                    </div>
+                  </div>
+                  {isCustomCreateMachine ? (
+                    <input
+                      type="text"
+                      placeholder="Type custom machine name (e.g. TF-35 Thermal Fogger)"
+                      value={newJobForm.machine_name}
+                      onChange={(e) => setNewJobForm({ ...newJobForm, machine_name: e.target.value, machine_id: "" })}
+                      className="w-full p-2 bg-white rounded-xl border border-purple-300 font-semibold focus:outline-hidden text-xs"
+                    />
+                  ) : (
+                    <select
+                      value={newJobForm.machine_id}
+                      onChange={(e) => {
+                        const mid = e.target.value;
+                        const m = createMachinesList.find(x => String(x.id) === String(mid));
+                        setNewJobForm({ ...newJobForm, machine_id: mid, machine_name: m ? m.machine_name : "" });
+                      }}
+                      className="w-full p-2 bg-white rounded-xl border border-slate-200 focus:outline-hidden text-xs font-medium"
+                    >
+                      <option value="">-- No Machine / Standard Sprayer --</option>
+                      {createMachinesList.map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.machine_name} ({m.machine_type || "Machine"}) - {m.is_available ? "✓ AVAILABLE" : ("⚠️ IN USE (" + (m.conflict_job?.job_code || "Busy") + ")")}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Team Persons Name */}
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-700 text-xs flex items-center gap-1">
+                    <Users className="w-3.5 h-3.5 text-indigo-600" /> Team Person Names
+                  </label>
+                  <input
+                    type="text"
+                    value={newJobForm.team_members}
+                    onChange={(e) => setNewJobForm({ ...newJobForm, team_members: e.target.value })}
+                    placeholder="e.g. Kasun (Lead), Nuwan, Chaminda (Helpers)"
+                    className="w-full p-2 bg-white rounded-xl border border-slate-200 focus:outline-hidden text-xs font-medium"
                   />
                 </div>
               </div>

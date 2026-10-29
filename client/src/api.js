@@ -155,3 +155,20 @@ export const deleteDatabaseBackup = (id) => fetchJson(`/backup/${id}`, { method:
 export const getBackupDownloadUrl = (id) => `/api/backup/download/${id}`;
 export const getLiveDatabaseDownloadUrl = () => '/api/backup/download-live';
 
+// Fleet & Machinery Management
+export const getVehicles = (params = {}) => {
+  const q = new URLSearchParams(params).toString();
+  return fetchJson(`/fleet/vehicles?${q}`);
+};
+export const createVehicle = (data) => fetchJson('/fleet/vehicles', { method: 'POST', body: data });
+export const getMachines = (params = {}) => {
+  const q = new URLSearchParams(params).toString();
+  return fetchJson(`/fleet/machines?${q}`);
+};
+export const createMachine = (data) => fetchJson('/fleet/machines', { method: 'POST', body: data });
+export const checkFleetAvailability = (params = {}) => {
+  const q = new URLSearchParams(params).toString();
+  return fetchJson(`/fleet/check-availability?${q}`);
+};
+
+

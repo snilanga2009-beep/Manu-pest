@@ -110,7 +110,11 @@ export default function CalendarView({
       // Client-side safeguard to guarantee frequency filtering
       if (filterFrequency && filterFrequency !== 'all') {
         const target = filterFrequency.toUpperCase();
-        evts = evts.filter(j => (j.recurring_frequency || j.frequency || '').toUpperCase() === target);
+        if (target === 'AD-HOC') {
+          evts = evts.filter(j => !j.recurring_service_id || (j.recurring_frequency || '').toUpperCase() === 'AD-HOC');
+        } else {
+          evts = evts.filter(j => (j.recurring_frequency || j.frequency || '').toUpperCase() === target);
+        }
       }
 
       setEvents(evts);
@@ -383,7 +387,13 @@ export default function CalendarView({
               { id: 'WEEKLY', label: 'Weekly' },
               { id: 'FORTNIGHTLY', label: 'Fortnightly' },
               { id: 'MONTHLY', label: 'Monthly' },
-              ...(frequencyCounts['3 MONTHLY'] > 0 ? [{ id: '3 MONTHLY', label: '3 Monthly' }] : [])
+              ...(frequencyCounts['AD-HOC'] > 0 ? [{ id: 'AD-HOC', label: 'Ad-hoc' }] : []),
+              ...(frequencyCounts['TWICE A MONTH'] > 0 ? [{ id: 'TWICE A MONTH', label: 'Twice Monthly' }] : []),
+              ...(frequencyCounts['2 MONTHLY'] > 0 ? [{ id: '2 MONTHLY', label: '2 Monthly' }] : []),
+              ...(frequencyCounts['3 MONTHLY'] > 0 ? [{ id: '3 MONTHLY', label: '3 Monthly' }] : []),
+              ...(frequencyCounts['4 MONTHLY'] > 0 ? [{ id: '4 MONTHLY', label: '4 Monthly' }] : []),
+              ...(frequencyCounts['6 MONTHLY'] > 0 ? [{ id: '6 MONTHLY', label: '6 Monthly' }] : []),
+              ...(frequencyCounts['ANNUALLY'] > 0 ? [{ id: 'ANNUALLY', label: 'Annually' }] : [])
             ].map(f => {
               const count = frequencyCounts[f.id] ?? (f.id === 'all' ? frequencyCounts.all : 0);
               const isSelected = filterFrequency === f.id;
@@ -906,6 +916,30 @@ export default function CalendarView({
                             </div>
                           )}
                         </div>
+
+                        {/* Vehicle, Machine & Team Members */}
+                        {((job.vehicle_no || job.vehicle_number) || (job.machine_name || job.machine_type) || job.team_members) && (
+                          <div className="mt-2 p-2.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200/80 rounded-xl space-y-1.5 text-xs">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {(job.vehicle_no || job.vehicle_number) && (
+                                <span className="font-bold text-blue-900 flex items-center gap-1 bg-white px-2 py-0.5 rounded-lg border border-blue-200 shadow-2xs">
+                                  🚗 {job.vehicle_no || job.vehicle_number} {job.vehicle_type ? `(${job.vehicle_type})` : ''}
+                                </span>
+                              )}
+                              {(job.machine_name || job.machine_type) && (
+                                <span className="font-bold text-purple-900 flex items-center gap-1 bg-white px-2 py-0.5 rounded-lg border border-purple-200 shadow-2xs">
+                                  ⚙️ {job.machine_name || job.machine_type}
+                                </span>
+                              )}
+                            </div>
+                            {job.team_members && (
+                              <div className="text-[11px] text-indigo-900 font-semibold flex items-center gap-1 pt-0.5">
+                                <Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                <span>Team Persons: <strong>{job.team_members}</strong></span>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {job.special_instructions && (
                           <div className="mt-1.5 p-2 bg-amber-50/80 border border-amber-200 rounded-xl text-[11px] text-amber-900 leading-relaxed">

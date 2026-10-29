@@ -4,9 +4,10 @@ import {
   MapPin, CheckCircle2, AlertTriangle, X, Check,
   AlertCircle, Shield, FileText, ChevronDown,
   Users, Plus, Trash2, Phone, HardHat,
-  Copy, Send, ExternalLink, MessageSquare, Smartphone, Sparkles
+  Copy, Send, ExternalLink, MessageSquare, Smartphone, Sparkles,
+  Truck, Cpu, Wrench
 } from 'lucide-react';
-import { updateJob, getStaff, getTreatments, getCustomerById, sendTechDispatchSms } from '../api';
+import { updateJob, getStaff, getTreatments, getCustomerById, sendTechDispatchSms, getVehicles, getMachines, createVehicle, createMachine } from '../api';
 
 export default function EditJobModal({ isOpen, job, onClose, onJobUpdated }) {
   const [formData, setFormData] = useState({
@@ -30,6 +31,18 @@ export default function EditJobModal({ isOpen, job, onClose, onJobUpdated }) {
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Fleet & Equipment & Team Persons states
+  const [vehicleId, setVehicleId] = useState('');
+  const [vehicleNo, setVehicleNo] = useState('');
+  const [isCustomVehicle, setIsCustomVehicle] = useState(false);
+  const [machineId, setMachineId] = useState('');
+  const [machineName, setMachineName] = useState('');
+  const [isCustomMachine, setIsCustomMachine] = useState(false);
+  const [teamMembers, setTeamMembers] = useState('');
+  const [vehiclesList, setVehiclesList] = useState([]);
+  const [machinesList, setMachinesList] = useState([]);
+  const [loadingFleet, setLoadingFleet] = useState(false);
 
   // Dispatch Link & SMS states
   const [dispatchSending, setDispatchSending] = useState(false);
@@ -67,6 +80,14 @@ export default function EditJobModal({ isOpen, job, onClose, onJobUpdated }) {
         technician_notes: job.technician_notes || ''
       });
 
+      setVehicleId(job.vehicle_id ? String(job.vehicle_id) : '');
+      setVehicleNo(job.vehicle_no || job.vehicle_number || '');
+      setIsCustomVehicle(!job.vehicle_id && Boolean(job.vehicle_no));
+      setMachineId(job.machine_id ? String(job.machine_id) : '');
+      setMachineName(job.machine_name || job.machine_type || '');
+      setIsCustomMachine(!job.machine_id && Boolean(job.machine_name));
+      setTeamMembers(job.team_members || '');
+
       const hasWorkers = Array.isArray(parsedWorkers) && parsedWorkers.length > 0;
       setLabourers(hasWorkers ? parsedWorkers : []);
       setEnableLabourers(hasWorkers);
@@ -81,6 +102,63 @@ export default function EditJobModal({ isOpen, job, onClose, onJobUpdated }) {
       }
     }
   }, [job, isOpen]);
+
+  const loadFleet = async (date) => {
+    if (!date) return;
+    setLoadingFleet(true);
+    try {
+      const [vRes, mRes] = await Promise.all([
+        getVehicles({ scheduled_date: date, exclude_job_id: job?.id }),
+        getMachines({ scheduled_date: date, exclude_job_id: job?.id })
+      ]);
+      setVehiclesList(vRes.vehicles || []);
+      setMachinesList(mRes.machines || []);
+    } catch (e) {
+      console.error('Error loading fleet:', e);
+    } finally {
+      setLoadingFleet(false);
+    }
+  };
+
+  useEffect(() => {
+    if (formData.scheduled_date && isOpen) {
+      loadFleet(formData.scheduled_date);
+    }
+  }, [formData.scheduled_date, isOpen, job?.id]);
+
+  const handleAddNewVehicle = async () => {
+    const num = prompt('Enter Vehicle Registration Number (e.g. WP CAD-5120):');
+    if (!num || !num.trim()) return;
+    const type = prompt('Enter Vehicle Type (e.g. Van, Double Cab, Lorry, Motorbike, Three-Wheeler):', 'Van');
+    try {
+      const res = await createVehicle({ vehicle_number: num.trim().toUpperCase(), vehicle_type: type?.trim() || 'Van' });
+      if (res.success && res.vehicle) {
+        setVehiclesList(prev => [...prev, { ...res.vehicle, is_available: true }]);
+        setVehicleId(String(res.vehicle.id));
+        setVehicleNo(res.vehicle.vehicle_number);
+        setIsCustomVehicle(false);
+      }
+    } catch (err) {
+      alert('Error adding vehicle: ' + err.message);
+    }
+  };
+
+  const handleAddNewMachine = async () => {
+    const name = prompt('Enter Machine / Equipment Name (e.g. Thermal Fogger TF-35):');
+    if (!name || !name.trim()) return;
+    const type = prompt('Enter Machine Type (e.g. Thermal Fogger, ULV Sprayer, Hand Sprayer):', 'Fogger');
+    try {
+      const res = await createMachine({ machine_name: name.trim(), machine_type: type?.trim() || 'Fogger' });
+      if (res.success && res.machine) {
+        setMachinesList(prev => [...prev, { ...res.machine, is_available: true }]);
+        setMachineId(String(res.machine.id));
+        setMachineName(res.machine.machine_name);
+        setIsCustomMachine(false);
+      }
+    } catch (err) {
+      alert('Error adding machine: ' + err.message);
+    }
+  };
 
   if (!isOpen || !job) return null;
 
@@ -121,6 +199,9 @@ export default function EditJobModal({ isOpen, job, onClose, onJobUpdated }) {
     const calculatedCrew = parseInt(crewCount, 10) || (validLabourers.length > 0 ? validLabourers.length + 1 : 1);
 
     try {
+      const chosenVehicle = vehiclesList.find(v => String(v.id) === String(vehicleId));
+      const chosenMachine = machinesList.find(m => String(m.id) === String(machineId));
+
       const res = await updateJob(job.id, {
         ...formData,
         technician_id: formData.technician_id ? parseInt(formData.technician_id, 10) : null,
@@ -130,6 +211,11 @@ export default function EditJobModal({ isOpen, job, onClose, onJobUpdated }) {
         duration_minutes: parseInt(formData.duration_minutes, 10) || 60,
         crew_count: calculatedCrew,
         workers_info: validLabourers,
+        vehicle_id: isCustomVehicle ? null : (vehicleId ? parseInt(vehicleId, 10) : null),
+        vehicle_no: isCustomVehicle ? (vehicleNo || null) : (chosenVehicle?.vehicle_number || vehicleNo || null),
+        machine_id: isCustomMachine ? null : (machineId ? parseInt(machineId, 10) : null),
+        machine_name: isCustomMachine ? (machineName || null) : (chosenMachine?.machine_name || machineName || null),
+        team_members: teamMembers ? teamMembers.trim() : null,
         send_sms: autoSendSms,
         custom_base_url: typeof window !== 'undefined' ? window.location.origin : undefined
       });
@@ -665,6 +751,211 @@ export default function EditJobModal({ isOpen, job, onClose, onJobUpdated }) {
               </div>
             );
           })()}
+
+          {/* Vehicle, Machinery & Team Persons Allocation Card */}
+          <div className="bg-gradient-to-br from-blue-50/70 via-indigo-50/40 to-cyan-50/60 p-4 rounded-2xl border border-blue-200/80 space-y-4">
+            <div className="flex items-center justify-between text-blue-950 font-bold uppercase tracking-wider text-[11px] pb-1 border-b border-blue-200/60">
+              <span className="flex items-center gap-2">
+                <Truck className="w-4 h-4 text-blue-600" />
+                <span>Vehicle, Machinery & Team Persons</span>
+              </span>
+              {loadingFleet && (
+                <span className="text-[10px] text-blue-600 animate-pulse font-normal">
+                  Checking Real-Time Availability...
+                </span>
+              )}
+            </div>
+
+            {/* Vehicle Selection & Real-Time Availability */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <Truck className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Assign Vehicle / Transport</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomVehicle(!isCustomVehicle)}
+                    className="text-[10px] font-bold text-blue-700 hover:text-blue-900 underline cursor-pointer"
+                  >
+                    {isCustomVehicle ? "Choose from Fleet List" : "+ Enter Custom Vehicle"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddNewVehicle}
+                    className="text-[10px] font-bold bg-white text-blue-700 px-2 py-0.5 rounded-lg border border-blue-200 hover:bg-blue-50 shadow-2xs cursor-pointer"
+                  >
+                    + Add New Vehicle
+                  </button>
+                </div>
+              </div>
+
+              {isCustomVehicle ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={vehicleNo}
+                    onChange={(e) => setVehicleNo(e.target.value.toUpperCase())}
+                    placeholder="e.g. WP CAD-5120 (Custom Van)"
+                    className="flex-1 bg-white px-3.5 py-2 rounded-xl border border-blue-300 font-semibold focus:outline-hidden focus:ring-2 focus:ring-blue-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setIsCustomVehicle(false); setVehicleNo(""); }}
+                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-700 text-xs"
+                  >
+                    Cancel Custom
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value={vehicleId}
+                  onChange={(e) => {
+                    const vid = e.target.value;
+                    setVehicleId(vid);
+                    const v = vehiclesList.find(x => String(x.id) === String(vid));
+                    setVehicleNo(v ? v.vehicle_number : "");
+                  }}
+                  className="w-full bg-white px-3.5 py-2.5 rounded-xl border border-slate-200 focus:bg-white focus:border-blue-500 focus:outline-hidden transition font-semibold"
+                >
+                  <option value="">-- No Vehicle Assigned --</option>
+                  {vehiclesList.map(v => (
+                    <option key={v.id} value={v.id}>
+                      {v.vehicle_number} ({v.vehicle_type || "Vehicle"}) - {v.is_available ? "✓ AVAILABLE" : ("⚠️ OCCUPIED (" + (v.conflict_job?.job_code || "In Use") + ")")}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {/* Vehicle Availability Warning */}
+              {(() => {
+                const chosen = vehiclesList.find(v => String(v.id) === String(vehicleId));
+                if (chosen && !chosen.is_available && chosen.conflict_job) {
+                  return (
+                    <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-xs flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div>
+                        <strong>Vehicle Conflict Warning:</strong> {chosen.vehicle_number} is already assigned to <strong>{chosen.conflict_job.job_code}</strong> ({chosen.conflict_job.customer_name}) on this date! You can still proceed or select another vehicle.
+                      </div>
+                    </div>
+                  );
+                } else if (chosen && chosen.is_available) {
+                  return (
+                    <div className="text-[11px] text-emerald-700 font-bold flex items-center gap-1.5 pt-0.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{chosen.vehicle_number} ({chosen.vehicle_type}) is 100% Available on {formData.scheduled_date}</span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+
+            {/* Machine Selection & Real-Time Availability */}
+            <div className="space-y-2 pt-2 border-t border-blue-200/50">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <Wrench className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Assign Machine / Fogger / Sprayer</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomMachine(!isCustomMachine)}
+                    className="text-[10px] font-bold text-purple-700 hover:text-purple-900 underline cursor-pointer"
+                  >
+                    {isCustomMachine ? "Choose from Equipment List" : "+ Enter Custom Machine"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddNewMachine}
+                    className="text-[10px] font-bold bg-white text-purple-700 px-2 py-0.5 rounded-lg border border-purple-200 hover:bg-purple-50 shadow-2xs cursor-pointer"
+                  >
+                    + Add New Machine
+                  </button>
+                </div>
+              </div>
+
+              {isCustomMachine ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={machineName}
+                    onChange={(e) => setMachineName(e.target.value)}
+                    placeholder="e.g. TF-35 Thermal Fogger / Solo Sprayer"
+                    className="flex-1 bg-white px-3.5 py-2 rounded-xl border border-purple-300 font-semibold focus:outline-hidden focus:ring-2 focus:ring-purple-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setIsCustomMachine(false); setMachineName(""); }}
+                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-700 text-xs"
+                  >
+                    Cancel Custom
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value={machineId}
+                  onChange={(e) => {
+                    const mid = e.target.value;
+                    setMachineId(mid);
+                    const m = machinesList.find(x => String(x.id) === String(mid));
+                    setMachineName(m ? m.machine_name : "");
+                  }}
+                  className="w-full bg-white px-3.5 py-2.5 rounded-xl border border-slate-200 focus:bg-white focus:border-purple-500 focus:outline-hidden transition font-semibold"
+                >
+                  <option value="">-- No Machine / Standard Sprayer --</option>
+                  {machinesList.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.machine_name} ({m.machine_type || "Machine"}) - {m.is_available ? "✓ AVAILABLE" : ("⚠️ IN USE (" + (m.conflict_job?.job_code || "Occupied") + ")")}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {/* Machine Availability Warning */}
+              {(() => {
+                const chosen = machinesList.find(m => String(m.id) === String(machineId));
+                if (chosen && !chosen.is_available && chosen.conflict_job) {
+                  return (
+                    <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-xs flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div>
+                        <strong>Machine Conflict Warning:</strong> {chosen.machine_name} is already assigned to <strong>{chosen.conflict_job.job_code}</strong> on this date!
+                      </div>
+                    </div>
+                  );
+                } else if (chosen && chosen.is_available) {
+                  return (
+                    <div className="text-[11px] text-emerald-700 font-bold flex items-center gap-1.5 pt-0.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{chosen.machine_name} is 100% Available on {formData.scheduled_date}</span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+
+            {/* Team Persons Name Input */}
+            <div className="space-y-1 pt-2 border-t border-blue-200/50">
+              <label className="font-bold text-slate-800 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Team Person Names / Deployed Crew</span>
+              </label>
+              <input
+                type="text"
+                value={teamMembers}
+                onChange={(e) => setTeamMembers(e.target.value)}
+                placeholder="e.g. Kasun (Lead), Nuwan, Chaminda (Helpers)"
+                className="w-full bg-white px-3.5 py-2 rounded-xl border border-slate-200 font-medium focus:outline-hidden focus:border-indigo-500 transition text-xs"
+              />
+              <p className="text-[10px] text-slate-500">
+                Names of all field personnel and assistants assigned to this job.
+              </p>
+            </div>
+          </div>
 
           {/* Technician Notes */}
           <div>

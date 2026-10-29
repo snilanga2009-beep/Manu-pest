@@ -661,6 +661,27 @@ export default function CustomersView({
                               </div>
                             )}
 
+                            {/* Vehicle, Machine & Team Persons */}
+                            {((item.vehicle_no || item.vehicle_number) || (item.machine_name || item.machine_type) || item.team_members) && (
+                              <div className="flex flex-wrap items-center gap-1.5 text-[10px] mt-1.5">
+                                {(item.vehicle_no || item.vehicle_number) && (
+                                  <span className="flex items-center gap-1 bg-blue-50 text-blue-800 px-2 py-0.5 rounded-md font-bold border border-blue-200">
+                                    🚗 {item.vehicle_no || item.vehicle_number} {item.vehicle_type ? `(${item.vehicle_type})` : ''}
+                                  </span>
+                                )}
+                                {(item.machine_name || item.machine_type) && (
+                                  <span className="flex items-center gap-1 bg-purple-50 text-purple-800 px-2 py-0.5 rounded-md font-bold border border-purple-200">
+                                    ⚙️ {item.machine_name || item.machine_type}
+                                  </span>
+                                )}
+                                {item.team_members && (
+                                  <span className="flex items-center gap-1 bg-indigo-50 text-indigo-800 px-2 py-0.5 rounded-md font-bold border border-indigo-200">
+                                    <Users className="w-3 h-3 text-indigo-600" /> Team: {item.team_members}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
                             {/* Accompanying Workers / Labourers with Name & Phone */}
                             {(() => {
                               let workers = [];
