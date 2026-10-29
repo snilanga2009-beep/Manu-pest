@@ -92,6 +92,64 @@ router.post('/vehicles', (req, res) => {
   }
 });
 
+// Update / Rename vehicle (change vehicle number, type, driver or notes)
+router.put('/vehicles/:id', (req, res) => {
+  const { id } = req.params;
+  const { vehicle_number, vehicle_type, driver_name, notes, is_active } = req.body;
+
+  try {
+    const existing = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Vehicle not found' });
+    }
+
+    const cleanNo = vehicle_number ? vehicle_number.trim().toUpperCase() : existing.vehicle_number;
+    const cleanType = vehicle_type !== undefined ? vehicle_type.trim() : existing.vehicle_type;
+    const cleanDriver = driver_name !== undefined ? driver_name.trim() : existing.driver_name;
+    const cleanNotes = notes !== undefined ? notes.trim() : existing.notes;
+    const cleanActive = is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active;
+
+    db.prepare(`
+      UPDATE vehicles SET
+        vehicle_number = ?,
+        vehicle_type = ?,
+        driver_name = ?,
+        notes = ?,
+        is_active = ?
+      WHERE id = ?
+    `).run(cleanNo, cleanType, cleanDriver, cleanNotes, cleanActive, id);
+
+    // Also update any future jobs that have this vehicle_id with the new vehicle_no
+    db.prepare(`
+      UPDATE jobs SET vehicle_no = ? WHERE vehicle_id = ?
+    `).run(cleanNo, id);
+
+    const updated = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(id);
+    res.json({ success: true, vehicle: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Delete / Remove vehicle from fleet
+router.delete('/vehicles/:id', (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const existing = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Vehicle not found' });
+    }
+
+    db.prepare('UPDATE jobs SET vehicle_id = NULL WHERE vehicle_id = ?').run(id);
+    db.prepare('DELETE FROM vehicles WHERE id = ?').run(id);
+
+    res.json({ success: true, message: `Vehicle ${existing.vehicle_number} removed from fleet.` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // List machines with optional real-time availability check for a specific date/job
 router.get('/machines', (req, res) => {
   const { scheduled_date, job_id } = req.query;

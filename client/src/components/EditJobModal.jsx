@@ -7,7 +7,7 @@ import {
   Copy, Send, ExternalLink, MessageSquare, Smartphone, Sparkles,
   Truck, Cpu, Wrench
 } from 'lucide-react';
-import { updateJob, getStaff, getTreatments, getCustomerById, sendTechDispatchSms, getVehicles, getMachines, createVehicle, createMachine } from '../api';
+import { updateJob, getStaff, getTreatments, getCustomerById, sendTechDispatchSms, getVehicles, getMachines, createVehicle, updateVehicle, deleteVehicle, createMachine } from '../api';
 
 export default function EditJobModal({ isOpen, job, onClose, onJobUpdated }) {
   const [formData, setFormData] = useState({
@@ -140,6 +140,54 @@ export default function EditJobModal({ isOpen, job, onClose, onJobUpdated }) {
       }
     } catch (err) {
       alert('Error adding vehicle: ' + err.message);
+    }
+  };
+
+  const handleRenameVehicle = async () => {
+    if (!vehicleId) {
+      alert('Please select a vehicle from the dropdown first to update or rename it.');
+      return;
+    }
+    const current = vehiclesList.find(x => String(x.id) === String(vehicleId));
+    if (!current) return;
+    const newNum = prompt('Update Vehicle Registration Number:', current.vehicle_number);
+    if (!newNum || !newNum.trim()) return;
+    const newType = prompt('Update Vehicle Type (Van, Double Cab, Lorry, Motorbike, Three-Wheeler):', current.vehicle_type || 'Van');
+    try {
+      const res = await updateVehicle(current.id, {
+        vehicle_number: newNum.trim().toUpperCase(),
+        vehicle_type: newType?.trim() || current.vehicle_type || 'Van'
+      });
+      if (res.success && res.vehicle) {
+        setVehiclesList(prev => prev.map(v => v.id === current.id ? { ...v, ...res.vehicle } : v));
+        setVehicleNo(res.vehicle.vehicle_number);
+        alert('Vehicle updated successfully to ' + res.vehicle.vehicle_number + ' (' + (res.vehicle.vehicle_type || 'Vehicle') + ')!');
+      }
+    } catch (err) {
+      alert('Error updating vehicle: ' + err.message);
+    }
+  };
+
+  const handleDeleteVehicle = async () => {
+    if (!vehicleId) {
+      alert('Please select a vehicle from the dropdown first to remove it.');
+      return;
+    }
+    const current = vehiclesList.find(x => String(x.id) === String(vehicleId));
+    if (!current) return;
+    if (!confirm('Are you sure you want to remove vehicle "' + current.vehicle_number + ' (' + (current.vehicle_type || 'Vehicle') + ')"?\n\nThis will remove it from the vehicle list.')) {
+      return;
+    }
+    try {
+      const res = await deleteVehicle(current.id);
+      if (res.success) {
+        setVehiclesList(prev => prev.filter(v => v.id !== current.id));
+        setVehicleId('');
+        setVehicleNo('');
+        alert('Vehicle ' + current.vehicle_number + ' removed from fleet.');
+      }
+    } catch (err) {
+      alert('Error deleting vehicle: ' + err.message);
     }
   };
 
@@ -773,21 +821,42 @@ export default function EditJobModal({ isOpen, job, onClose, onJobUpdated }) {
                   <Truck className="w-3.5 h-3.5 text-blue-600" />
                   <span>Assign Vehicle / Transport</span>
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <button
                     type="button"
                     onClick={() => setIsCustomVehicle(!isCustomVehicle)}
                     className="text-[10px] font-bold text-blue-700 hover:text-blue-900 underline cursor-pointer"
                   >
-                    {isCustomVehicle ? "Choose from Fleet List" : "+ Enter Custom Vehicle"}
+                    {isCustomVehicle ? "Choose from Fleet List" : "+ Custom"}
                   </button>
                   <button
                     type="button"
                     onClick={handleAddNewVehicle}
                     className="text-[10px] font-bold bg-white text-blue-700 px-2 py-0.5 rounded-lg border border-blue-200 hover:bg-blue-50 shadow-2xs cursor-pointer"
+                    title="Add new vehicle"
                   >
-                    + Add New Vehicle
+                    + Add
                   </button>
+                  {vehicleId && !isCustomVehicle && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleRenameVehicle}
+                        className="text-[10px] font-bold bg-amber-50 text-amber-800 px-2 py-0.5 rounded-lg border border-amber-200 hover:bg-amber-100 shadow-2xs cursor-pointer"
+                        title="Rename or update this vehicle"
+                      >
+                        ✏️ Rename
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeleteVehicle}
+                        className="text-[10px] font-bold bg-rose-50 text-rose-700 px-2 py-0.5 rounded-lg border border-rose-200 hover:bg-rose-100 shadow-2xs cursor-pointer"
+                        title="Remove/delete this demo vehicle"
+                      >
+                        🗑️ Remove
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -938,17 +1007,43 @@ export default function EditJobModal({ isOpen, job, onClose, onJobUpdated }) {
               })()}
             </div>
 
-            {/* Team Persons Name Input */}
-            <div className="space-y-1 pt-2 border-t border-blue-200/50">
-              <label className="font-bold text-slate-800 flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Team Person Names / Deployed Crew</span>
-              </label>
+            {/* Team Persons Name Input & Staff Multi-Add */}
+            <div className="space-y-1.5 pt-2 border-t border-blue-200/50">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Team Person Names / Deployed Crew</span>
+                </label>
+                <span className="text-[10px] text-slate-400">Custom names or click staff:</span>
+              </div>
+
+              {staff && staff.length > 0 && (
+                <div className="flex flex-wrap gap-1 items-center pb-0.5">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Quick Add:</span>
+                  {staff.filter(s => s.role === 'TECHNICIAN' || s.role === 'STAFF').slice(0, 8).map(st => (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => {
+                        const parts = teamMembers ? teamMembers.split(',').map(s => s.trim()).filter(Boolean) : [];
+                        if (!parts.includes(st.full_name)) {
+                          parts.push(st.full_name);
+                          setTeamMembers(parts.join(', '));
+                        }
+                      }}
+                      className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-md font-semibold hover:bg-indigo-100 transition cursor-pointer"
+                    >
+                      + {st.full_name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <input
                 type="text"
                 value={teamMembers}
                 onChange={(e) => setTeamMembers(e.target.value)}
-                placeholder="e.g. Kasun (Lead), Nuwan, Chaminda (Helpers)"
+                placeholder="Type custom crew names (e.g. Kasun, Nuwan, Chaminda) or click staff above"
                 className="w-full bg-white px-3.5 py-2 rounded-xl border border-slate-200 font-medium focus:outline-hidden focus:border-indigo-500 transition text-xs"
               />
               <p className="text-[10px] text-slate-500">

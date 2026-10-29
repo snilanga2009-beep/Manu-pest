@@ -7,7 +7,7 @@ import {
   RefreshCw, Building, CheckCircle, Truck, Cpu, Wrench
 } from 'lucide-react';
 import {
-  getJobs, getJobById, createJob, assignJob, bulkAssignJobs, getVehicles, getMachines, createVehicle, createMachine,
+  getJobs, getJobById, createJob, assignJob, bulkAssignJobs, getVehicles, getMachines, createVehicle, updateVehicle, deleteVehicle, createMachine,
   startJob, completeJob, postponeJob, cancelJob,
   getStaff, getTreatments, getCustomers, getCustomerById, sendTechDispatchSms
 } from '../api';
@@ -76,58 +76,6 @@ export default function JobsView({
       }
     }
   }, [isTechnicianMode, currentTechnicianId]);
-
-  // Create Modal Fleet & Machinery states
-  const [createVehiclesList, setCreateVehiclesList] = useState([]);
-  const [createMachinesList, setCreateMachinesList] = useState([]);
-  const [loadingCreateFleet, setLoadingCreateFleet] = useState(false);
-  const [isCustomCreateVehicle, setIsCustomCreateVehicle] = useState(false);
-  const [isCustomCreateMachine, setIsCustomCreateMachine] = useState(false);
-
-  useEffect(() => {
-    if (newJobForm.scheduled_date && showCreateModal) {
-      setLoadingCreateFleet(true);
-      Promise.all([
-        getVehicles({ scheduled_date: newJobForm.scheduled_date }),
-        getMachines({ scheduled_date: newJobForm.scheduled_date })
-      ]).then(([vRes, mRes]) => {
-        setCreateVehiclesList(vRes.vehicles || []);
-        setCreateMachinesList(mRes.machines || []);
-      }).catch(console.error).finally(() => setLoadingCreateFleet(false));
-    }
-  }, [newJobForm.scheduled_date, showCreateModal]);
-
-  const handleAddNewVehicleForCreate = async () => {
-    const num = prompt('Enter Vehicle Registration Number (e.g. WP CAD-5120):');
-    if (!num || !num.trim()) return;
-    const type = prompt('Enter Vehicle Type (e.g. Van, Double Cab, Lorry, Motorbike, Three-Wheeler):', 'Van');
-    try {
-      const res = await createVehicle({ vehicle_number: num.trim().toUpperCase(), vehicle_type: type?.trim() || 'Van' });
-      if (res.success && res.vehicle) {
-        setCreateVehiclesList(prev => [...prev, { ...res.vehicle, is_available: true }]);
-        setNewJobForm(prev => ({ ...prev, vehicle_id: res.vehicle.id, vehicle_no: res.vehicle.vehicle_number }));
-        setIsCustomCreateVehicle(false);
-      }
-    } catch (err) {
-      alert('Error adding vehicle: ' + err.message);
-    }
-  };
-
-  const handleAddNewMachineForCreate = async () => {
-    const name = prompt('Enter Machine / Equipment Name (e.g. Thermal Fogger TF-35):');
-    if (!name || !name.trim()) return;
-    const type = prompt('Enter Machine Type (e.g. Thermal Fogger, ULV Sprayer, Hand Sprayer):', 'Fogger');
-    try {
-      const res = await createMachine({ machine_name: name.trim(), machine_type: type?.trim() || 'Fogger' });
-      if (res.success && res.machine) {
-        setCreateMachinesList(prev => [...prev, { ...res.machine, is_available: true }]);
-        setNewJobForm(prev => ({ ...prev, machine_id: res.machine.id, machine_name: res.machine.machine_name }));
-        setIsCustomCreateMachine(false);
-      }
-    } catch (err) {
-      alert('Error adding machine: ' + err.message);
-    }
-  };
 
   // Selected job for detail modal
   const [selectedJob, setSelectedJob] = useState(null);
@@ -235,6 +183,105 @@ export default function JobsView({
     setCustomerLocations([]);
     setIsCustomCreateVehicle(false);
     setIsCustomCreateMachine(false);
+  };
+
+  // Create Modal Fleet & Machinery states
+  const [createVehiclesList, setCreateVehiclesList] = useState([]);
+  const [createMachinesList, setCreateMachinesList] = useState([]);
+  const [loadingCreateFleet, setLoadingCreateFleet] = useState(false);
+  const [isCustomCreateVehicle, setIsCustomCreateVehicle] = useState(false);
+  const [isCustomCreateMachine, setIsCustomCreateMachine] = useState(false);
+
+  useEffect(() => {
+    if (newJobForm.scheduled_date && showCreateModal) {
+      setLoadingCreateFleet(true);
+      Promise.all([
+        getVehicles({ scheduled_date: newJobForm.scheduled_date }),
+        getMachines({ scheduled_date: newJobForm.scheduled_date })
+      ]).then(([vRes, mRes]) => {
+        setCreateVehiclesList(vRes.vehicles || []);
+        setCreateMachinesList(mRes.machines || []);
+      }).catch(console.error).finally(() => setLoadingCreateFleet(false));
+    }
+  }, [newJobForm.scheduled_date, showCreateModal]);
+
+  const handleAddNewVehicleForCreate = async () => {
+    const num = prompt('Enter Vehicle Registration Number (e.g. WP CAD-5120):');
+    if (!num || !num.trim()) return;
+    const type = prompt('Enter Vehicle Type (e.g. Van, Double Cab, Lorry, Motorbike, Three-Wheeler):', 'Van');
+    try {
+      const res = await createVehicle({ vehicle_number: num.trim().toUpperCase(), vehicle_type: type?.trim() || 'Van' });
+      if (res.success && res.vehicle) {
+        setCreateVehiclesList(prev => [...prev, { ...res.vehicle, is_available: true }]);
+        setNewJobForm(prev => ({ ...prev, vehicle_id: res.vehicle.id, vehicle_no: res.vehicle.vehicle_number }));
+        setIsCustomCreateVehicle(false);
+      }
+    } catch (err) {
+      alert('Error adding vehicle: ' + err.message);
+    }
+  };
+
+  const handleRenameVehicleForCreate = async () => {
+    if (!newJobForm.vehicle_id) {
+      alert('Please select a vehicle from the dropdown first to update or rename it.');
+      return;
+    }
+    const current = createVehiclesList.find(x => String(x.id) === String(newJobForm.vehicle_id));
+    if (!current) return;
+    const newNum = prompt('Update Vehicle Registration Number:', current.vehicle_number);
+    if (!newNum || !newNum.trim()) return;
+    const newType = prompt('Update Vehicle Type (Van, Double Cab, Lorry, Motorbike, Three-Wheeler):', current.vehicle_type || 'Van');
+    try {
+      const res = await updateVehicle(current.id, {
+        vehicle_number: newNum.trim().toUpperCase(),
+        vehicle_type: newType?.trim() || current.vehicle_type || 'Van'
+      });
+      if (res.success && res.vehicle) {
+        setCreateVehiclesList(prev => prev.map(v => v.id === current.id ? { ...v, ...res.vehicle } : v));
+        setNewJobForm(prev => ({ ...prev, vehicle_no: res.vehicle.vehicle_number }));
+        alert('Vehicle updated successfully to ' + res.vehicle.vehicle_number + ' (' + (res.vehicle.vehicle_type || 'Vehicle') + ')!');
+      }
+    } catch (err) {
+      alert('Error updating vehicle: ' + err.message);
+    }
+  };
+
+  const handleDeleteVehicleForCreate = async () => {
+    if (!newJobForm.vehicle_id) {
+      alert('Please select a vehicle from the dropdown first to remove it.');
+      return;
+    }
+    const current = createVehiclesList.find(x => String(x.id) === String(newJobForm.vehicle_id));
+    if (!current) return;
+    if (!confirm('Are you sure you want to remove vehicle "' + current.vehicle_number + ' (' + (current.vehicle_type || 'Vehicle') + ')"?\n\nThis will remove it from the vehicle fleet list.')) {
+      return;
+    }
+    try {
+      const res = await deleteVehicle(current.id);
+      if (res.success) {
+        setCreateVehiclesList(prev => prev.filter(v => v.id !== current.id));
+        setNewJobForm(prev => ({ ...prev, vehicle_id: '', vehicle_no: '' }));
+        alert('Vehicle ' + current.vehicle_number + ' removed from fleet.');
+      }
+    } catch (err) {
+      alert('Error deleting vehicle: ' + err.message);
+    }
+  };
+
+  const handleAddNewMachineForCreate = async () => {
+    const name = prompt('Enter Machine / Equipment Name (e.g. Thermal Fogger TF-35):');
+    if (!name || !name.trim()) return;
+    const type = prompt('Enter Machine Type (e.g. Thermal Fogger, ULV Sprayer, Hand Sprayer):', 'Fogger');
+    try {
+      const res = await createMachine({ machine_name: name.trim(), machine_type: type?.trim() || 'Fogger' });
+      if (res.success && res.machine) {
+        setCreateMachinesList(prev => [...prev, { ...res.machine, is_available: true }]);
+        setNewJobForm(prev => ({ ...prev, machine_id: res.machine.id, machine_name: res.machine.machine_name }));
+        setIsCustomCreateMachine(false);
+      }
+    } catch (err) {
+      alert('Error adding machine: ' + err.message);
+    }
   };
 
   const handleSelectCustomerForNewJob = async (customerId) => {
@@ -1900,21 +1947,42 @@ export default function JobsView({
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="font-semibold text-slate-700 text-xs">Vehicle / Transport</label>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <button
                         type="button"
                         onClick={() => setIsCustomCreateVehicle(!isCustomCreateVehicle)}
                         className="text-[10px] text-blue-700 hover:text-blue-900 underline font-semibold cursor-pointer"
                       >
-                        {isCustomCreateVehicle ? "Choose from Fleet" : "+ Custom Vehicle"}
+                        {isCustomCreateVehicle ? "Choose from Fleet" : "+ Custom"}
                       </button>
                       <button
                         type="button"
                         onClick={handleAddNewVehicleForCreate}
                         className="text-[10px] bg-white text-blue-700 px-2 py-0.5 rounded-lg border border-blue-200 hover:bg-blue-50 font-bold shadow-2xs cursor-pointer"
+                        title="Add new vehicle to fleet"
                       >
-                        + New Vehicle
+                        + Add
                       </button>
+                      {newJobForm.vehicle_id && !isCustomCreateVehicle && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleRenameVehicleForCreate}
+                            className="text-[10px] bg-amber-50 text-amber-800 px-2 py-0.5 rounded-lg border border-amber-200 hover:bg-amber-100 font-bold shadow-2xs cursor-pointer"
+                            title="Rename or update vehicle"
+                          >
+                            ✏️ Rename
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleDeleteVehicleForCreate}
+                            className="text-[10px] bg-rose-50 text-rose-700 px-2 py-0.5 rounded-lg border border-rose-200 hover:bg-rose-100 font-bold shadow-2xs cursor-pointer"
+                            title="Remove/delete vehicle from fleet"
+                          >
+                            🗑️ Remove
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                   {isCustomCreateVehicle ? (
@@ -1994,16 +2062,43 @@ export default function JobsView({
                   )}
                 </div>
 
-                {/* Team Persons Name */}
-                <div className="space-y-1">
-                  <label className="font-semibold text-slate-700 text-xs flex items-center gap-1">
-                    <Users className="w-3.5 h-3.5 text-indigo-600" /> Team Person Names
-                  </label>
+                {/* Team Persons Name & Staff Multi-Add */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-slate-700 text-xs flex items-center gap-1">
+                      <Users className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Team Person Names / Deployed Crew</span>
+                    </label>
+                    <span className="text-[10px] text-slate-400">Custom names or click staff:</span>
+                  </div>
+
+                  {staff && staff.length > 0 && (
+                    <div className="flex flex-wrap gap-1 items-center pb-0.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Quick Add:</span>
+                      {staff.filter(s => s.role === 'TECHNICIAN' || s.role === 'STAFF').slice(0, 8).map(st => (
+                        <button
+                          key={st.id}
+                          type="button"
+                          onClick={() => {
+                            const parts = newJobForm.team_members ? newJobForm.team_members.split(',').map(s => s.trim()).filter(Boolean) : [];
+                            if (!parts.includes(st.full_name)) {
+                              parts.push(st.full_name);
+                              setNewJobForm({ ...newJobForm, team_members: parts.join(', ') });
+                            }
+                          }}
+                          className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-md font-semibold hover:bg-indigo-100 transition cursor-pointer"
+                        >
+                          + {st.full_name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   <input
                     type="text"
                     value={newJobForm.team_members}
                     onChange={(e) => setNewJobForm({ ...newJobForm, team_members: e.target.value })}
-                    placeholder="e.g. Kasun (Lead), Nuwan, Chaminda (Helpers)"
+                    placeholder="Type custom crew names (e.g. Kasun, Nuwan, Sunimal) or click staff above"
                     className="w-full p-2 bg-white rounded-xl border border-slate-200 focus:outline-hidden text-xs font-medium"
                   />
                 </div>

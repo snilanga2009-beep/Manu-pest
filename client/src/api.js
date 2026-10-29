@@ -161,6 +161,8 @@ export const getVehicles = (params = {}) => {
   return fetchJson(`/fleet/vehicles?${q}`);
 };
 export const createVehicle = (data) => fetchJson('/fleet/vehicles', { method: 'POST', body: data });
+export const updateVehicle = (id, data) => fetchJson(`/fleet/vehicles/${id}`, { method: 'PUT', body: data });
+export const deleteVehicle = (id) => fetchJson(`/fleet/vehicles/${id}`, { method: 'DELETE' });
 export const getMachines = (params = {}) => {
   const q = new URLSearchParams(params).toString();
   return fetchJson(`/fleet/machines?${q}`);
