@@ -716,16 +716,20 @@ export default function CustomersView({
 
       {/* Add Customer Modal */}
       {showAddCustomerModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h2 className="text-lg font-bold text-slate-900">Add New Customer</h2>
-              <button onClick={() => setShowAddCustomerModal(false)} className="text-slate-400 hover:text-slate-700">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-hidden">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
+              <div>
+                <h2 className="text-lg font-black text-slate-900 tracking-tight">Add New Customer</h2>
+                <p className="text-[11px] text-slate-500">Create client profile & optional master schedule contract</p>
+              </div>
+              <button onClick={() => setShowAddCustomerModal(false)} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 transition">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateCustomer} className="space-y-3 text-xs">
+            <form onSubmit={handleCreateCustomer} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <div className="p-6 overflow-y-auto space-y-3.5 flex-1 text-xs">
               <div>
                 <label className="font-semibold text-slate-700">Customer Name *</label>
                 <input
@@ -942,19 +946,23 @@ export default function CustomersView({
                 )}
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              </div>
+
+              {/* Fixed Visible Bottom Action Bar */}
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/90 flex items-center justify-end gap-3 shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowAddCustomerModal(false)}
-                  className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  className="px-4 py-2.5 font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition cursor-pointer text-xs"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-xs"
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md hover:shadow-lg transition cursor-pointer text-xs flex items-center gap-2"
                 >
-                  Create Customer
+                  <Check className="w-4 h-4" />
+                  <span>Create Customer</span>
                 </button>
               </div>
             </form>
@@ -1007,16 +1015,20 @@ export default function CustomersView({
 
       {/* Add Recurring Service Modal */}
       {showAddRecurringModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h2 className="text-base font-bold text-slate-900">Add Recurring Contract</h2>
-              <button onClick={() => setShowAddRecurringModal(false)} className="text-slate-400 hover:text-slate-700">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-hidden">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
+              <div>
+                <h2 className="text-base font-black text-slate-900">Add Recurring Contract</h2>
+                <p className="text-[11px] text-slate-500">Configure frequency, alignment, and auto-schedule jobs</p>
+              </div>
+              <button onClick={() => setShowAddRecurringModal(false)} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 transition">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateRecurring} className="space-y-3.5 text-xs">
+            <form onSubmit={handleCreateRecurring} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <div className="p-6 overflow-y-auto space-y-3.5 flex-1 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold text-slate-700">Location</label>
@@ -1185,10 +1197,14 @@ export default function CustomersView({
                 )}
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button type="button" onClick={() => setShowAddRecurringModal(false)} className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition">Cancel</button>
-                <button type="submit" className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs transition">
-                  Save & Generate Schedule
+              </div>
+
+              {/* Fixed Visible Bottom Action Bar */}
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/90 flex items-center justify-end gap-3 shrink-0">
+                <button type="button" onClick={() => setShowAddRecurringModal(false)} className="px-4 py-2.5 font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition cursor-pointer text-xs">Cancel</button>
+                <button type="submit" className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md hover:shadow-lg transition cursor-pointer text-xs flex items-center gap-2">
+                  <Check className="w-4 h-4" />
+                  <span>Save & Generate Schedule</span>
                 </button>
               </div>
             </form>
@@ -1199,19 +1215,20 @@ export default function CustomersView({
       
       {/* Edit Recurring Contract Modal */}
       {editingRecurring && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4 animate-in fade-in duration-150">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-hidden">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
               <div>
-                <h2 className="text-base font-bold text-slate-900">Edit Recurring Contract</h2>
+                <h2 className="text-base font-black text-slate-900">Edit Recurring Contract</h2>
                 <p className="text-[11px] text-slate-500">Update frequency, preferred day, assigned technician, or schedule status</p>
               </div>
-              <button onClick={() => setEditingRecurring(null)} className="text-slate-400 hover:text-slate-700 p-1">
+              <button onClick={() => setEditingRecurring(null)} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 transition">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleUpdateRecurring} className="space-y-3.5 text-xs">
+            <form onSubmit={handleUpdateRecurring} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <div className="p-6 overflow-y-auto space-y-3.5 flex-1 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold text-slate-700">Treatment *</label>
@@ -1353,10 +1370,14 @@ export default function CustomersView({
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button type="button" onClick={() => setEditingRecurring(null)} className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition">Cancel</button>
-                <button type="submit" className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs transition">
-                  Save Changes
+              </div>
+
+              {/* Fixed Visible Bottom Action Bar */}
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/90 flex items-center justify-end gap-3 shrink-0">
+                <button type="button" onClick={() => setEditingRecurring(null)} className="px-4 py-2.5 font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition cursor-pointer text-xs">Cancel</button>
+                <button type="submit" className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md hover:shadow-lg transition cursor-pointer text-xs flex items-center gap-2">
+                  <Check className="w-4 h-4" />
+                  <span>Save Changes</span>
                 </button>
               </div>
             </form>
