@@ -346,6 +346,7 @@ export default function JobsView({
     try {
       const effectiveTech = isTechnicianMode ? (activeTechId || getEffectiveTechId()) : (technicianFilter || undefined);
       const res = await getJobs({
+        role: isTechnicianMode ? 'TECHNICIAN' : 'MANAGER',
         status: statusFilter || undefined,
         date: dateFilter || undefined,
         from_date: (!dateFilter && dateFromFilter) ? dateFromFilter : undefined,
@@ -1237,40 +1238,67 @@ export default function JobsView({
               Showing <span className="text-[#6D28D9]">{jobs.length}</span> of {total || kpiStats.all} Matching Job(s)
             </span>
             {dateFilter && (
-              <span className="px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-800 font-bold text-[11px] flex items-center gap-1">
+              <span className="px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-800 font-bold text-[11px] flex items-center gap-1 shadow-2xs">
                 📅 Date: {dateFilter}
-                <X className="w-3 h-3 cursor-pointer" onClick={() => setDateFilter('')} />
+                <X className="w-3 h-3 cursor-pointer hover:text-orange-950" onClick={() => setDateFilter('')} />
               </span>
             )}
             {(dateFromFilter || dateToFilter) && (
-              <span className="px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold text-[11px] flex items-center gap-1">
+              <span className="px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold text-[11px] flex items-center gap-1 shadow-2xs">
                 📅 Range: {dateFromFilter || '...'} → {dateToFilter || '...'}
-                <X className="w-3 h-3 cursor-pointer" onClick={() => { setDateFromFilter(''); setDateToFilter(''); }} />
+                <X className="w-3 h-3 cursor-pointer hover:text-purple-950" onClick={() => { setDateFromFilter(''); setDateToFilter(''); }} />
+              </span>
+            )}
+            {technicianFilter && !isTechnicianMode && (
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold text-[11px] flex items-center gap-1 shadow-2xs">
+                👷 Tech: {staff.find(s => String(s.id) === String(technicianFilter))?.full_name || 'Technician'}
+                <X className="w-3 h-3 cursor-pointer hover:text-amber-950" onClick={() => setTechnicianFilter('')} />
+              </span>
+            )}
+            {treatmentFilter && (
+              <span className="px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-900 font-bold text-[11px] flex items-center gap-1 shadow-2xs">
+                🧪 Treatment: {treatments.find(t => String(t.id) === String(treatmentFilter))?.name || 'Treatment'}
+                <X className="w-3 h-3 cursor-pointer hover:text-teal-950" onClick={() => setTreatmentFilter('')} />
               </span>
             )}
             {statusFilter && (
-              <span className="px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold text-[11px] flex items-center gap-1">
+              <span className="px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold text-[11px] flex items-center gap-1 shadow-2xs">
                 📌 Status: {statusFilter}
-                <X className="w-3 h-3 cursor-pointer" onClick={() => setStatusFilter('')} />
+                <X className="w-3 h-3 cursor-pointer hover:text-indigo-950" onClick={() => setStatusFilter('')} />
               </span>
             )}
             {assignmentFilter && (
-              <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-bold text-[11px] flex items-center gap-1">
+              <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-bold text-[11px] flex items-center gap-1 shadow-2xs">
                 👷 {assignmentFilter}
-                <X className="w-3 h-3 cursor-pointer" onClick={() => setAssignmentFilter('')} />
+                <X className="w-3 h-3 cursor-pointer hover:text-rose-950" onClick={() => setAssignmentFilter('')} />
               </span>
             )}
             {vehicleFilter && (
-              <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 font-bold text-[11px] flex items-center gap-1">
+              <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 font-bold text-[11px] flex items-center gap-1 shadow-2xs">
                 🚗 {vehicleFilter}
-                <X className="w-3 h-3 cursor-pointer" onClick={() => setVehicleFilter('')} />
+                <X className="w-3 h-3 cursor-pointer hover:text-blue-950" onClick={() => setVehicleFilter('')} />
               </span>
             )}
             {machineFilter && (
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[11px] flex items-center gap-1">
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[11px] flex items-center gap-1 shadow-2xs">
                 ⚙️ {machineFilter}
-                <X className="w-3 h-3 cursor-pointer" onClick={() => setMachineFilter('')} />
+                <X className="w-3 h-3 cursor-pointer hover:text-emerald-950" onClick={() => setMachineFilter('')} />
               </span>
+            )}
+            {search && (
+              <span className="px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-800 font-bold text-[11px] flex items-center gap-1 shadow-2xs">
+                🔍 "{search}"
+                <X className="w-3 h-3 cursor-pointer hover:text-slate-950" onClick={() => setSearch('')} />
+              </span>
+            )}
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={handleClearAllFilters}
+                className="px-2.5 py-0.5 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 font-black text-[11px] flex items-center gap-1 border border-rose-200 cursor-pointer transition ml-1"
+              >
+                <X className="w-3 h-3" /> Clear All Filters
+              </button>
             )}
           </div>
 
@@ -1342,15 +1370,17 @@ export default function JobsView({
           <div className="bg-white p-10 rounded-3xl border border-slate-200 text-center space-y-2">
             <Briefcase className="w-12 h-12 text-slate-300 mx-auto" />
             <p className="text-base font-black text-slate-800">No Matching Jobs Found</p>
-            <p className="text-xs text-slate-500">Try resetting or adjusting your active filters above.</p>
+            <p className="text-xs text-slate-500">Your current filter combination has 0 matching jobs.</p>
             {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={handleClearAllFilters}
-                className="mt-2 px-4 py-2 rounded-xl bg-[#4C1D95] text-white font-black text-xs cursor-pointer"
-              >
-                Reset All Filters
-              </button>
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-black text-xs shadow-md shadow-orange-500/20 active:scale-98 transition cursor-pointer"
+                >
+                  ✕ Reset All Filters &amp; View All Jobs
+                </button>
+              </div>
             )}
           </div>
         ) : (
@@ -1527,15 +1557,17 @@ export default function JobsView({
           <div className="p-12 text-center space-y-2">
             <Briefcase className="w-12 h-12 text-slate-300 mx-auto" />
             <div className="text-base font-black text-slate-800">No Jobs Match Your Active Filters</div>
-            <p className="text-xs text-slate-500">Try clearing or changing the filters above to view more jobs.</p>
+            <p className="text-xs text-slate-500">Your current filter combination has 0 matching jobs.</p>
             {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={handleClearAllFilters}
-                className="mt-2 px-4 py-2 rounded-xl bg-[#4C1D95] hover:bg-[#3B0764] text-white font-black text-xs cursor-pointer"
-              >
-                Reset All Filters
-              </button>
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-black text-xs shadow-md shadow-orange-500/20 active:scale-98 transition cursor-pointer"
+                >
+                  ✕ Reset All Filters &amp; View All Jobs
+                </button>
+              </div>
             )}
           </div>
         ) : (

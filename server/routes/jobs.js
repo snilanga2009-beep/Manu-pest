@@ -139,13 +139,28 @@ router.get('/', (req, res) => {
     LEFT JOIN machines m ON j.machine_id = m.id
   `;
 
-  // Compute per-technician counts within the current date/treatment/search scope
+  // Compute per-technician counts within the current date horizon scope
+  const techScopeWhere = ['1=1'];
+  const techScopeParams = [];
+  if (date) {
+    techScopeWhere.push(`(CASE WHEN j.status = 'POSTPONED' AND j.postponed_to_date IS NOT NULL AND j.postponed_to_date != '' THEN substr(j.postponed_to_date, 1, 10) ELSE substr(j.scheduled_date, 1, 10) END) = ?`);
+    techScopeParams.push(date);
+  }
+  if (from_date) {
+    techScopeWhere.push('j.scheduled_date >= ?');
+    techScopeParams.push(from_date);
+  }
+  if (to_date) {
+    techScopeWhere.push('j.scheduled_date <= ?');
+    techScopeParams.push(to_date);
+  }
+
   const techRows = db.prepare(`
     SELECT j.technician_id, COUNT(*) as count
     ${baseFromJoin}
-    WHERE ${scopeWhere.join(' AND ')}
+    WHERE ${techScopeWhere.join(' AND ')}
     GROUP BY j.technician_id
-  `).all(...scopeParams);
+  `).all(...techScopeParams);
 
   const byTechnician = {};
   let scopeTotal = 0;
@@ -192,9 +207,10 @@ router.get('/', (req, res) => {
     WHERE ${kpiSql}
   `).get(...kpiParams, today, today) || {};
 
-  // Global Today & Tomorrow counts (respecting technician_id if in technician mode)
-  const dateCountWhere = technician_id ? 'WHERE technician_id = ? AND ' : 'WHERE ';
-  const dateCountParams = technician_id ? [technician_id] : [];
+  // Global Today & Tomorrow counts (respecting technician_id only if explicitly in technician role)
+  const isTechRole = req.query.role === 'TECHNICIAN';
+  const dateCountWhere = (technician_id && isTechRole) ? 'WHERE j.technician_id = ? AND ' : 'WHERE ';
+  const dateCountParams = (technician_id && isTechRole) ? [technician_id] : [];
   const todayTotalCount = db.prepare(`
     SELECT COUNT(*) as count FROM jobs j
     ${dateCountWhere} (CASE WHEN j.status = 'POSTPONED' AND j.postponed_to_date IS NOT NULL AND j.postponed_to_date != '' THEN substr(j.postponed_to_date, 1, 10) ELSE substr(j.scheduled_date, 1, 10) END) = ?
@@ -207,7 +223,7 @@ router.get('/', (req, res) => {
 
   const allDatesTotalCount = db.prepare(`
     SELECT COUNT(*) as count FROM jobs j
-    ${technician_id ? 'WHERE j.technician_id = ?' : ''}
+    ${(technician_id && isTechRole) ? 'WHERE j.technician_id = ?' : ''}
   `).get(...dateCountParams).count;
 
   // 3. Final Query Filters (including status)
