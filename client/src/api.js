@@ -154,6 +154,7 @@ export const restoreDatabaseBackup = (id) => fetchJson(`/backup/restore/${id}`, 
 export const deleteDatabaseBackup = (id) => fetchJson(`/backup/${id}`, { method: 'DELETE' });
 export const getBackupDownloadUrl = (id) => `/api/backup/download/${id}`;
 export const getLiveDatabaseDownloadUrl = () => '/api/backup/download-live';
+export const resetAllSystemData = (data = {}) => fetchJson('/backup/reset-all', { method: 'POST', body: data });
 
 // Fleet & Machinery Management
 export const getVehicles = (params = {}) => {

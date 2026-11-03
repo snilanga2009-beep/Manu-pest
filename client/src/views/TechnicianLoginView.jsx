@@ -1,15 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import {
   Phone, Smartphone, ShieldCheck, CheckCircle2, AlertTriangle,
-  Send, RefreshCw, Sparkles, Key, ArrowRight, Lock, Check
+  Send, RefreshCw, Sparkles, Key, ArrowRight, Lock, Check, HardHat, Briefcase
 } from 'lucide-react';
 import { savePersistentTechSession } from '../services/offlineStorage';
 import { getSavedBranding, fetchServerBranding } from '../components/BrandingSettingsModal';
 
-export default function TechnicianLoginView({ onLoginSuccess }) {
+export default function TechnicianLoginView({ onLoginSuccess, initialRole }) {
   const [branding, setBranding] = useState(() => getSavedBranding());
+  const [loginRole, setLoginRole] = useState(() => {
+    if (initialRole) return initialRole;
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const path = window.location.pathname.toLowerCase();
+      if (path.startsWith('/manager') || params.get('role')?.toLowerCase() === 'manager' || params.has('manager')) {
+        return 'MANAGER';
+      }
+    }
+    return 'TECHNICIAN';
+  });
   const [step, setStep] = useState(1); // 1: Enter Phone, 2: Enter OTP
   const [phone, setPhone] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [verifiedStaffPreview, setVerifiedStaffPreview] = useState(null);
   const [otpCode, setOtpCode] = useState('');
   const [rememberDevice, setRememberDevice] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -32,12 +45,32 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
     }
   }, [countdown]);
 
-  // Step 1: Send SMS OTP
+  const handleRoleSwitch = (nextRole) => {
+    setLoginRole(nextRole);
+    setStep(1);
+    setOtpSent(false);
+    setVerifiedStaffPreview(null);
+    setOtpCode('');
+    setError(null);
+    setSmsFeedback(null);
+  };
+
+  const handlePhoneInput = (val) => {
+    setPhone(val);
+    setOtpSent(false);
+    setVerifiedStaffPreview(null);
+    setOtpCode('');
+    setSmsFeedback(null);
+    if (error) setError(null);
+  };
+
+  // Step 1: Strictly verify registered phone number & send SMS OTP
   const handleRequestOtp = async (e) => {
     if (e) e.preventDefault();
     const cleanDigits = String(phone || '').replace(/\D/g, '');
     if (cleanDigits.length < 9) {
-      setError('Please enter a valid 9 or 10-digit Sri Lankan mobile phone number (e.g. 0771234567).');
+      setError('Please enter a valid 9 or 10-digit Sri Lankan mobile phone number (e.g. 0777183981).');
+      setOtpSent(false);
       return;
     }
 
@@ -49,7 +82,7 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
       const res = await fetch('/api/tech-auth/request-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: cleanDigits })
+        body: JSON.stringify({ phone: cleanDigits, role: loginRole })
       });
 
       const rawText = await res.text();
@@ -57,33 +90,23 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
       try {
         data = JSON.parse(rawText);
       } catch (parseErr) {
-        data = null;
+        throw new Error('Unable to reach verification server. Please check your connection.');
       }
 
-      if (!data || !data.success) {
-        if (data && data.error) {
-          throw new Error(data.error);
-        }
-        // Fallback 6-digit OTP if backend route is unreachable
-        const fallbackOtp = Math.floor(100000 + Math.random() * 900000).toString();
-        sessionStorage.setItem('tech_fallback_otp', fallbackOtp);
-        sessionStorage.setItem('tech_fallback_phone', cleanDigits);
-        setStep(2);
-        setCountdown(60);
-        setSmsFeedback({
-          message: `1-Time OTP Code generated for ${phone}`,
-          debugCode: fallbackOtp
-        });
-        setOtpCode(fallbackOtp);
-        return;
+      if (!res.ok || !data || !data.success) {
+        setOtpSent(false);
+        setVerifiedStaffPreview(null);
+        setOtpCode('');
+        setStep(1);
+        throw new Error(
+          data?.error ||
+          `Phone number "${phone}" is not registered as an active ${loginRole === 'MANAGER' ? 'Manager' : 'Technician'}. OTP code was NOT sent.`
+        );
       }
 
-      sessionStorage.setItem('tech_fallback_otp', data.debugCode || '');
-      sessionStorage.setItem('tech_fallback_phone', cleanDigits);
-      if (data.technician) {
-        sessionStorage.setItem('tech_fallback_user', JSON.stringify(data.technician));
-      }
-
+      // Phone is verified as registered in DB! Move to Step 2
+      setOtpSent(true);
+      setVerifiedStaffPreview(data.technician || null);
       setStep(2);
       setCountdown(60);
       setSmsFeedback({
@@ -94,32 +117,22 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
         setOtpCode(data.debugCode);
       }
     } catch (err) {
-      const msg = String(err.message || '');
-      if (msg.toLowerCase().includes('expected pattern') || msg.toLowerCase().includes('unexpected token')) {
-        const fallbackOtp = Math.floor(100000 + Math.random() * 900000).toString();
-        sessionStorage.setItem('tech_fallback_otp', fallbackOtp);
-        sessionStorage.setItem('tech_fallback_phone', cleanDigits);
-        setStep(2);
-        setCountdown(60);
-        setSmsFeedback({
-          message: `1-Time OTP Code ready for ${phone}`,
-          debugCode: fallbackOtp
-        });
-        setOtpCode(fallbackOtp);
-      } else {
-        setError(msg || 'Failed to dispatch SMS verification code.');
-      }
+      setOtpSent(false);
+      setVerifiedStaffPreview(null);
+      setOtpCode('');
+      setStep(1);
+      setError(err.message || 'Phone verification failed. OTP code was NOT sent.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Step 2: Verify SMS OTP
+  // Step 2: Strictly Verify SMS OTP against server
   const handleVerifyOtp = async (e) => {
     if (e) e.preventDefault();
     const cleanDigits = String(phone || '').replace(/\D/g, '');
-    if (cleanDigits.length < 9) {
-      setError('Please enter your registered mobile phone number first.');
+    if (!otpSent || cleanDigits.length < 9) {
+      setError('Please verify your registered mobile phone number first.');
       setStep(1);
       return;
     }
@@ -138,6 +151,7 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
         body: JSON.stringify({
           phone: cleanDigits,
           otp_code: otpCode.trim(),
+          role: loginRole,
           device_info: {
             userAgent: navigator.userAgent,
             timestamp: new Date().toISOString()
@@ -150,46 +164,14 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
       try {
         data = JSON.parse(rawText);
       } catch (parseErr) {
-        data = null;
+        throw new Error('Unable to reach verification server.');
       }
 
-      if (data && data.success && data.technician) {
-        await activateSession(data.technician, data.token);
-        return;
+      if (!res.ok || !data || !data.success || !data.technician) {
+        throw new Error(data?.error || 'Invalid or expired 6-digit SMS OTP code.');
       }
 
-      // Check fallback login endpoint or cached OTP
-      const savedOtp = sessionStorage.getItem('tech_fallback_otp');
-      if (savedOtp && savedOtp === otpCode.trim()) {
-        const loginRes = await fetch('/api/tech-auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: cleanDigits })
-        }).catch(() => null);
-
-        if (loginRes) {
-          const loginText = await loginRes.text();
-          try {
-            const loginData = JSON.parse(loginText);
-            if (loginData?.success && loginData?.technician) {
-              await activateSession(loginData.technician, loginData.token);
-              return;
-            }
-          } catch (e) {}
-        }
-
-        const cachedTechStr = sessionStorage.getItem('tech_fallback_user');
-        const fallbackTech = cachedTechStr ? JSON.parse(cachedTechStr) : {
-          id: 4,
-          full_name: `Field Specialist (${cleanDigits})`,
-          phone: cleanDigits,
-          role: 'TECHNICIAN'
-        };
-        await activateSession(fallbackTech, `tech_local_${Date.now()}`);
-        return;
-      }
-
-      throw new Error(data?.error || 'Invalid or expired 6-digit SMS OTP code.');
+      await activateSession({ ...data.technician, role: loginRole }, data.token);
     } catch (err) {
       setError(err.message || 'OTP verification failed.');
     } finally {
@@ -197,29 +179,39 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
     }
   };
 
-  const activateSession = async (technician, token) => {
-    const techUser = {
-      ...technician,
-      role: 'TECHNICIAN'
+  const activateSession = async (userObj, token) => {
+    const finalRole = loginRole === 'MANAGER' ? 'MANAGER' : (userObj.role || 'TECHNICIAN');
+    const sessionUser = {
+      ...userObj,
+      role: finalRole,
+      appMode: finalRole === 'MANAGER' ? 'MANAGER_APP' : 'TECH_APP'
     };
 
     if (rememberDevice) {
       await savePersistentTechSession({
         token,
-        technician: techUser,
-        phone: technician.phone
+        technician: sessionUser,
+        phone: userObj.phone,
+        role: finalRole
       });
     }
 
     localStorage.setItem('auth_token', token);
-    localStorage.setItem('auth_user', JSON.stringify(techUser));
-    localStorage.setItem('tech_preferred_id', String(technician.id));
-    localStorage.setItem('tech_session', JSON.stringify(techUser));
+    localStorage.setItem('auth_user', JSON.stringify(sessionUser));
+    localStorage.setItem('tech_session', JSON.stringify(sessionUser));
+
+    if (finalRole === 'MANAGER') {
+      localStorage.removeItem('tech_preferred_id');
+    } else {
+      localStorage.setItem('tech_preferred_id', String(userObj.id));
+    }
 
     if (onLoginSuccess) {
-      onLoginSuccess(techUser, token);
+      onLoginSuccess(sessionUser, token);
     }
   };
+
+  const isManager = loginRole === 'MANAGER';
 
   return (
     <div className="min-h-[100dvh] w-full bg-gradient-to-br from-[#5B21B6] via-[#4C1D95] to-[#2E1065] flex flex-col justify-between md:justify-center items-center p-0 md:p-6 relative overflow-x-hidden select-none font-sans">
@@ -248,14 +240,16 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
         <div className="md:col-span-5 flex flex-col items-center justify-center px-6 pt-8 pb-5 md:p-8 text-center text-white relative">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-white text-[10px] font-black uppercase tracking-widest mb-2 border border-white/30 shadow-xs">
             <span className="w-2 h-2 rounded-full bg-amber-300 animate-ping" />
-            <span>{branding?.companyName || 'PEST CONTROL FIELD APP'}</span>
+            <span>{branding?.companyName || (isManager ? 'MANAGER OPERATIONS APP' : 'PEST CONTROL FIELD APP')}</span>
           </div>
 
           <h1 className="text-2xl sm:text-3xl font-black tracking-wider uppercase text-white drop-shadow-sm">
-            PEST CONTROL
+            {isManager ? 'MANAGER APP' : 'PEST CONTROL'}
           </h1>
           <p className="text-xs text-purple-100 font-semibold mt-0.5 max-w-xs">
-            Mobile Field Technician Service &amp; Schedule Portal
+            {isManager
+              ? 'Operations Manager Mobile Schedule, Today & Tomorrow Jobs + Master Calendar'
+              : 'Mobile Field Technician Today Work Queue Portal'}
           </p>
 
           {/* Pest Control Man Vector Character Image */}
@@ -264,16 +258,16 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
             <div className="relative w-36 h-36 sm:w-44 sm:h-44 md:w-52 md:h-52 rounded-[2.25rem] bg-white p-1.5 shadow-2xl border-4 border-white/80 overflow-hidden mx-auto">
               <img
                 src="/pest-tech-man.jpg"
-                alt="Pest Control Technician"
+                alt="Pest Control Specialist"
                 className="w-full h-full object-cover rounded-[1.85rem]"
                 onError={(e) => {
                   e.currentTarget.src = '/pest-login-bg.jpg';
                 }}
               />
             </div>
-            <div className=" -bottom-2.5 left-1/2 -translate-x-1/2 absolute bg-gradient-to-r from-orange-500 to-amber-500 text-white text-[10px] font-black uppercase tracking-wider px-3.5 py-1 rounded-full shadow-lg border border-white whitespace-nowrap flex items-center gap-1">
+            <div className="-bottom-2.5 left-1/2 -translate-x-1/2 absolute bg-gradient-to-r from-orange-500 to-amber-500 text-white text-[10px] font-black uppercase tracking-wider px-3.5 py-1 rounded-full shadow-lg border border-white whitespace-nowrap flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-white" />
-              <span>Verified Tech Portal</span>
+              <span>{isManager ? 'Verified Manager Portal' : 'Verified Tech Portal'}</span>
             </div>
           </div>
 
@@ -295,19 +289,58 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
           </div>
 
           <div className="space-y-4 relative z-10">
+            {/* Role Switcher Panel: TECHNICIAN APP vs MANAGER APP */}
             <div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-orange-600 bg-orange-50 px-2.5 py-1 rounded-full border border-orange-200">
-                1-Time SMS OTP Sign-In
+              <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">
+                Select Mobile App Portal
+              </label>
+              <div className="grid grid-cols-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleRoleSwitch('TECHNICIAN')}
+                  className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                    !isManager
+                      ? 'bg-gradient-to-r from-[#F97316] to-[#EA580C] text-white shadow-md shadow-orange-500/20'
+                      : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  <HardHat className="w-4 h-4 shrink-0" />
+                  <span>Technician App</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRoleSwitch('MANAGER')}
+                  className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                    isManager
+                      ? 'bg-gradient-to-r from-[#4C1D95] via-[#5B21B6] to-[#6D28D9] text-white shadow-md shadow-purple-500/25'
+                      : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  <Briefcase className="w-4 h-4 shrink-0" />
+                  <span>Manager App</span>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border ${
+                isManager
+                  ? 'text-purple-700 bg-purple-50 border-purple-200'
+                  : 'text-orange-600 bg-orange-50 border-orange-200'
+              }`}>
+                {isManager ? 'Manager 1-Time SMS OTP Login' : 'Technician 1-Time SMS OTP Sign-In'}
               </span>
               <h2 className="text-xl sm:text-2xl font-black text-[#3B0764] mt-1.5">
-                Technician Sign In
+                {isManager ? 'Manager App Sign In' : 'Technician Sign In'}
               </h2>
               <p className="text-xs text-slate-500 font-medium">
-                Enter your registered mobile number &amp; 1-time SMS OTP code
+                {isManager
+                  ? 'Enter your registered Manager mobile number. OTP is only sent to registered Managers.'
+                  : 'Enter your registered Technician mobile number. OTP is only sent to registered Technicians.'}
               </p>
             </div>
 
-            {/* Step Switcher Tabs: 1. Phone Number | 2. 1-Time SMS OTP */}
+            {/* Step Switcher Tabs: 1. Phone Number | 2. 1-Time SMS OTP (Locked until phone verified) */}
             <div className="grid grid-cols-2 p-1.5 bg-purple-50/90 rounded-2xl border border-purple-100 gap-1.5">
               <button
                 type="button"
@@ -322,38 +355,47 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
                 }`}
               >
                 <Phone className="w-3.5 h-3.5 shrink-0" />
-                <span>1. Phone No</span>
+                <span>1. Verify Phone No</span>
               </button>
               <button
                 type="button"
+                disabled={!otpSent}
                 onClick={() => {
+                  if (!otpSent) return;
                   setStep(2);
                   setError(null);
                 }}
-                className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition ${
                   step === 2
-                    ? 'bg-gradient-to-r from-[#6D28D9] to-[#4C1D95] text-white shadow-md shadow-purple-500/20'
-                    : 'text-purple-900 hover:bg-purple-100/60'
+                    ? 'bg-gradient-to-r from-[#6D28D9] to-[#4C1D95] text-white shadow-md shadow-purple-500/20 cursor-pointer'
+                    : otpSent
+                      ? 'text-purple-900 hover:bg-purple-100/60 cursor-pointer'
+                      : 'text-slate-400 opacity-60 cursor-not-allowed'
                 }`}
               >
-                <Key className="w-3.5 h-3.5 shrink-0" />
+                {otpSent ? <Key className="w-3.5 h-3.5 shrink-0" /> : <Lock className="w-3.5 h-3.5 shrink-0" />}
                 <span>2. SMS OTP Code</span>
               </button>
             </div>
 
             {error && (
-              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl text-xs font-bold flex items-start gap-2">
+              <div className="p-3.5 bg-rose-50 border-2 border-rose-200 text-rose-800 rounded-2xl text-xs font-bold flex items-start gap-2.5 shadow-xs">
                 <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
             )}
 
-            {smsFeedback && (
+            {smsFeedback && otpSent && (
               <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-xs font-bold space-y-1">
                 <div className="flex items-center gap-1.5 text-emerald-700">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>{smsFeedback.message}</span>
                 </div>
+                {verifiedStaffPreview?.full_name && (
+                  <div className="text-[11px] text-emerald-900">
+                    Verified Account: <strong>{verifiedStaffPreview.full_name}</strong> ({verifiedStaffPreview.role})
+                  </div>
+                )}
                 {smsFeedback.debugCode && (
                   <div className="text-[11px] text-emerald-800 font-mono bg-emerald-100/80 p-1.5 rounded-xl text-center mt-1 border border-emerald-200">
                     1-Time OTP Code: <strong className="text-emerald-950 font-black text-sm tracking-widest">{smsFeedback.debugCode}</strong>
@@ -363,11 +405,11 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
             )}
 
             {step === 1 ? (
-              /* STEP 1: ENTER PHONE NUMBER */
+              /* STEP 1: ENTER & VERIFY REGISTERED PHONE NUMBER */
               <form noValidate onSubmit={handleRequestOtp} className="space-y-4">
                 <div>
                   <label className="block text-[11px] font-black uppercase tracking-wider text-slate-600 mb-1.5">
-                    Mobile Phone Number
+                    {isManager ? 'Registered Manager Mobile Number' : 'Registered Technician Mobile Number'}
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -378,14 +420,14 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
                       inputMode="tel"
                       autoComplete="tel"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="077 123 4567"
+                      onChange={(e) => handlePhoneInput(e.target.value)}
+                      placeholder={isManager ? 'e.g. 0777183981' : 'e.g. 0729744526'}
                       className="w-full pl-11 pr-4 py-3.5 bg-slate-50 rounded-2xl border-2 border-slate-200 focus:bg-white focus:border-[#6D28D9] focus:outline-hidden text-base font-black text-slate-900 tracking-wide transition"
                     />
                   </div>
                 </div>
 
-                {/* Remember Device Checkbox Row matching Reference Login Screen */}
+                {/* Remember Device Checkbox Row */}
                 <div className="flex items-center justify-between text-xs pt-0.5">
                   <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700">
                     <input
@@ -396,13 +438,9 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
                     />
                     <span>Remember Device</span>
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => setStep(2)}
-                    className="text-[#6D28D9] hover:text-[#4C1D95] font-black underline cursor-pointer"
-                  >
-                    Already have OTP code?
-                  </button>
+                  <span className="text-[11px] text-slate-400 font-semibold">
+                    Registered staff numbers only
+                  </span>
                 </div>
 
                 {/* Primary Pill Action Button */}
@@ -415,40 +453,50 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
                     <RefreshCw className="w-5 h-5 animate-spin" />
                   ) : (
                     <>
-                      <span>START &bull; SEND SMS OTP</span>
+                      <span>{isManager ? 'VERIFY PHONE & SEND MANAGER OTP' : 'VERIFY PHONE & SEND TECH OTP'}</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}
                 </button>
               </form>
             ) : (
-              /* STEP 2: ENTER PHONE + 6-DIGIT 1-TIME SMS OTP CODE */
+              /* STEP 2: ENTER 6-DIGIT 1-TIME SMS OTP CODE */
               <form noValidate onSubmit={handleVerifyOtp} className="space-y-3.5">
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-[11px] font-black uppercase tracking-wider text-slate-600">
-                      Mobile Phone Number
+                      Verified {isManager ? 'Manager' : 'Technician'} Phone
                     </label>
-                    <button
-                      type="button"
-                      onClick={handleRequestOtp}
-                      disabled={loading || countdown > 0}
-                      className="text-[11px] font-black text-orange-600 hover:text-orange-700 disabled:text-slate-400 cursor-pointer"
-                    >
-                      {countdown > 0 ? `Resend SMS in ${countdown}s` : 'Send / Resend SMS OTP'}
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStep(1);
+                          setError(null);
+                        }}
+                        className="text-[11px] font-bold text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                      >
+                        Change Phone
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRequestOtp}
+                        disabled={loading || countdown > 0}
+                        className="text-[11px] font-black text-orange-600 hover:text-orange-700 disabled:text-slate-400 cursor-pointer"
+                      >
+                        {countdown > 0 ? `Resend in ${countdown}s` : 'Resend OTP'}
+                      </button>
+                    </div>
                   </div>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <Phone className="w-4 h-4 text-orange-500" />
+                      <Phone className="w-4 h-4 text-emerald-600" />
                     </div>
                     <input
                       type="text"
-                      inputMode="tel"
+                      readOnly
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="077 123 4567"
-                      className="w-full pl-11 pr-4 py-3 bg-slate-50 rounded-2xl border-2 border-slate-200 focus:bg-white focus:border-[#6D28D9] focus:outline-hidden text-sm font-black text-slate-900 tracking-wide transition"
+                      className="w-full pl-11 pr-4 py-3 bg-emerald-50/50 rounded-2xl border-2 border-emerald-200 text-sm font-black text-slate-900 tracking-wide"
                     />
                   </div>
                 </div>
@@ -479,7 +527,7 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
                   ) : (
                     <>
                       <CheckCircle2 className="w-5 h-5" />
-                      <span>VERIFY OTP &amp; SIGN IN</span>
+                      <span>{isManager ? 'VERIFY OTP & OPEN MANAGER APP' : 'VERIFY OTP & SIGN IN'}</span>
                     </>
                   )}
                 </button>
@@ -493,7 +541,7 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
               <Smartphone className="w-3.5 h-3.5 text-orange-500" />
               <span>Android &bull; iPhone &bull; iPad</span>
             </span>
-            <span>PWA Offline Ready</span>
+            <span>{isManager ? 'Manager App Ready' : 'Technician App Ready'}</span>
           </div>
         </div>
       </div>

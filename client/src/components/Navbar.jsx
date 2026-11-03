@@ -262,7 +262,7 @@ export default function Navbar({
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
 
             {/* Global Add Customer Button */}
-            {!isMobileView && onOpenAddCustomer && (
+            {!isMobileView && onOpenAddCustomer && currentRole !== 'SUPERVISOR' && (
               <button
                 onClick={onOpenAddCustomer}
                 className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-[#F97316] to-[#FF8A00] hover:from-[#EA580C] hover:to-[#F97316] text-white text-xs font-black rounded-full shadow-md shadow-orange-500/25 transition transform active:scale-95 cursor-pointer"
@@ -274,7 +274,7 @@ export default function Navbar({
             )}
 
             {/* Run Daily Automation Trigger */}
-            {!isMobileView && (
+            {!isMobileView && currentRole !== 'SUPERVISOR' && (
               <button
                 onClick={handleRunAutomation}
                 disabled={automationLoading}
@@ -287,7 +287,8 @@ export default function Navbar({
             )}
 
             {/* View Mode Toggle: Desktop <-> Mobile */}
-            <button
+            {currentRole !== 'SUPERVISOR' && (
+              <button
               onClick={onToggleMobileView}
               title={isMobileView ? "Switch to Desktop Admin Portal" : "Switch to Mobile Technician App View"}
               className={`flex items-center gap-1 sm:gap-1.5 px-3 py-2 text-xs font-black rounded-full border transition cursor-pointer ${
@@ -299,6 +300,7 @@ export default function Navbar({
               {isMobileView ? <Monitor className="w-3.5 h-3.5" /> : <Smartphone className="w-3.5 h-3.5 text-amber-300" />}
               <span className="hidden sm:inline">{isMobileView ? 'Desktop Admin' : 'Technician App'}</span>
             </button>
+            )}
 
             {/* Notification Bell */}
             <div className="relative" ref={notifRef}>
@@ -349,7 +351,7 @@ export default function Navbar({
                   <span className="text-sm">🛡️</span>
                   <span className="font-black text-white">{currentUser.full_name}</span>
                   <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-gradient-to-r from-[#F97316] to-[#FF8A00] text-white shadow-2xs">
-                    Operations Control
+                    {currentRole === 'SUPERVISOR' ? 'Field Supervisor' : 'Operations Control'}
                   </span>
                 </div>
 

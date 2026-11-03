@@ -299,6 +299,18 @@ router.put('/:id', (req, res) => {
       WHERE id = ?
     `).run(name, contact_person, phone, email, address, location, latitude, longitude, special_instructions, is_active, id);
 
+    // Also sync primary customer_location coordinates & name so technician navigation maps stay updated
+    if (latitude !== undefined || longitude !== undefined || location !== undefined || address !== undefined) {
+      db.prepare(`
+        UPDATE customer_locations SET
+          location_name = COALESCE(NULLIF(?, ''), location_name),
+          address = COALESCE(NULLIF(?, ''), address),
+          latitude = COALESCE(NULLIF(?, ''), latitude),
+          longitude = COALESCE(NULLIF(?, ''), longitude)
+        WHERE customer_id = ? AND is_primary = 1
+      `).run(location || null, address || null, latitude !== '' ? latitude : null, longitude !== '' ? longitude : null, id);
+    }
+
     const updated = db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
     res.json({ success: true, customer: updated });
   } catch (err) {

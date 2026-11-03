@@ -3,14 +3,17 @@ import {
   LayoutDashboard, Users, Calendar, Briefcase,
   FileSpreadsheet, BarChart3, Settings, ShieldCheck,
   CheckCircle, Clock, AlertTriangle, Bell, BellRing, Smartphone,
-  Zap, ChevronRight, UserPlus, Database, LogOut
+  Zap, ChevronRight, UserPlus, Database, LogOut, Activity
 } from 'lucide-react';
 import { getSmsSettings } from '../api';
 import { getSavedBranding, fetchServerBranding, PresetLogoIcon } from './BrandingSettingsModal';
 
-export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenAddCustomer, currentUser, onLogout, onSwitchUser }) {
+export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenAddCustomer, currentUser, currentRole, onLogout, onSwitchUser }) {
   const [branding, setBranding] = useState(getSavedBranding());
   const [smsGatewayInfo, setSmsGatewayInfo] = useState({ provider: 'TEXT_LK', is_active: 1, is_simulation: 1 });
+
+  const effectiveRole = (currentRole || currentUser?.role || 'ADMIN').toUpperCase();
+  const isSupervisor = effectiveRole === 'SUPERVISOR';
 
   useEffect(() => {
     fetchServerBranding().then(b => { if (b) setBranding(b); });
@@ -20,6 +23,7 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
   }, []);
 
   useEffect(() => {
+    if (isSupervisor) return;
     getSmsSettings()
       .then(res => {
         if (res.success && res.settings) {
@@ -31,9 +35,9 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
         }
       })
       .catch(() => {});
-  }, []);
+  }, [isSupervisor]);
 
-  const navItems = [
+  const allNavItems = [
     {
       id: 'dashboard',
       label: 'Dashboard',
@@ -44,6 +48,18 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       description: 'Overview & KPIs'
     },
     {
+      id: 'live_monitor',
+      label: 'Live Monitor',
+      icon: Activity,
+      badge: 'LIVE',
+      badgeColor: 'bg-emerald-500 text-white animate-pulse',
+      color: 'orange',
+      activeGradient: 'from-[#F97316] to-[#EA580C] shadow-orange-200',
+      iconBg: 'bg-orange-50 text-orange-600',
+      description: isSupervisor ? 'Technician tracking & sign-off' : 'Real-time start & finish',
+      allowSupervisor: true
+    },
+    {
       id: 'jobs',
       label: 'Jobs & Operations',
       icon: Briefcase,
@@ -52,7 +68,8 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       color: 'orange',
       activeGradient: 'from-[#F97316] to-[#EA580C] shadow-orange-200',
       iconBg: 'bg-orange-50 text-orange-600',
-      description: 'Daily schedules'
+      description: isSupervisor ? 'Job assigning, routes & sign-off' : 'Daily schedules',
+      allowSupervisor: true
     },
     {
       id: 'reminders',
@@ -76,12 +93,13 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
     },
     {
       id: 'customers',
-      label: 'Customers & CRM',
+      label: isSupervisor ? 'Customer & Service Timelines' : 'Customers & CRM',
       icon: Users,
       color: 'purple',
       activeGradient: 'from-[#4C1D95] via-[#5B21B6] to-[#6D28D9] shadow-purple-200',
       iconBg: 'bg-purple-50 text-[#6D28D9]',
-      description: 'Clients & Sites'
+      description: isSupervisor ? 'Customer timelines (View only)' : 'Clients & Sites',
+      allowSupervisor: true
     },
     {
       id: 'reports',
@@ -127,6 +145,11 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
     },
   ];
 
+  // Field Supervisor only sees: Jobs & Operations, Live Monitor, and Customer Management & Service Timelines
+  const navItems = isSupervisor
+    ? allNavItems.filter(item => item.allowSupervisor)
+    : allNavItems;
+
   return (
     <aside className="w-68 bg-white border-r border-purple-100 flex flex-col shrink-0 min-h-[calc(100vh-4rem)] select-none shadow-xs">
 
@@ -150,32 +173,43 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
           </div>
           <div className="min-w-0">
             <span className="inline-block text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-orange-500 text-white mb-0.5">
-              PEST CONTROL
+              {isSupervisor ? 'FIELD SUPERVISOR' : 'PEST CONTROL'}
             </span>
             <div className="text-xs font-black text-white truncate">
               {branding.name || 'Operations Control'}
             </div>
             <div className="text-[10px] text-purple-200 font-semibold truncate">
-              Master Command Center
+              {isSupervisor ? 'Dispatch, Tracking & Sign-off' : 'Master Command Center'}
             </div>
           </div>
         </div>
 
-        {/* Quick Add Customer Pill Button inside Hero Card */}
-        <button
-          onClick={onOpenAddCustomer}
-          className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-full bg-gradient-to-r from-[#F97316] to-[#FF8A00] hover:from-[#EA580C] hover:to-[#F97316] text-white text-xs font-black shadow-md shadow-orange-950/30 transition transform active:scale-95 group cursor-pointer"
-        >
-          <UserPlus className="w-4 h-4 transition-transform group-hover:scale-110" />
-          <span>+ Add New Customer</span>
-        </button>
+        {/* Quick Add Customer Pill Button inside Hero Card (Hidden for Field Supervisor) */}
+        {!isSupervisor ? (
+          <button
+            onClick={onOpenAddCustomer}
+            className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-full bg-gradient-to-r from-[#F97316] to-[#FF8A00] hover:from-[#EA580C] hover:to-[#F97316] text-white text-xs font-black shadow-md shadow-orange-950/30 transition transform active:scale-95 group cursor-pointer"
+          >
+            <UserPlus className="w-4 h-4 transition-transform group-hover:scale-110" />
+            <span>+ Add New Customer</span>
+          </button>
+        ) : (
+          <div className="mt-3 px-3 py-2 rounded-2xl bg-white/10 border border-white/15 text-[10px] text-purple-100 font-semibold leading-snug">
+            <span className="text-amber-300 font-black block uppercase tracking-wider text-[9px]">Supervisor Scope Active</span>
+            Job assigning, route verification, technician tracking, completion sign-off &amp; customer service timelines.
+          </div>
+        )}
       </div>
 
       {/* Navigation List */}
       <div className="p-3.5 flex-1 space-y-1.5 pt-2">
         <div className="px-3 pt-1 pb-1 flex items-center justify-between text-[10px] font-black text-purple-900/60 uppercase tracking-wider">
-          <span className="truncate max-w-[140px] text-[#3B0764] font-black">Control Menu</span>
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-[#6D28D9] font-mono font-bold border border-purple-100">v2026</span>
+          <span className="truncate max-w-[150px] text-[#3B0764] font-black">
+            {isSupervisor ? 'Supervisor Workspace' : 'Control Menu'}
+          </span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-[#6D28D9] font-mono font-bold border border-purple-100">
+            {isSupervisor ? 'LIMITED' : 'v2026'}
+          </span>
         </div>
 
         {navItems.map(item => {
@@ -224,31 +258,33 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
         })}
       </div>
 
-      {/* Sri Lanka SMS Gateway Live Indicator Card */}
-      <div className="px-3.5 pb-2">
-        <div
-          onClick={() => onTabChange('settings')}
-          className="p-3 rounded-2xl bg-gradient-to-br from-purple-50 via-white to-orange-50/60 border border-purple-200 hover:border-orange-400 transition cursor-pointer shadow-2xs group"
-        >
-          <div className="flex items-center justify-between text-[11px] font-black text-[#3B0764] mb-1.5">
-            <span className="flex items-center gap-1.5">
-              <Smartphone className="w-3.5 h-3.5 text-orange-500" /> Sri Lanka SMS Gateway
-            </span>
-            <span className="flex items-center gap-1 text-[10px] font-extrabold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-md">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              {smsGatewayInfo.is_simulation ? 'Simulation' : 'Live'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-600">
-            <span className="font-mono text-[#6D28D9] font-black">
-              {smsGatewayInfo.provider === 'TEXT_LK' ? 'Text.lk (REST v3)' : smsGatewayInfo.provider}
-            </span>
-            <span className="text-[10px] text-orange-600 group-hover:translate-x-0.5 transition font-black flex items-center">
-              Configure <ChevronRight className="w-3 h-3 ml-0.5" />
-            </span>
+      {/* Sri Lanka SMS Gateway Live Indicator Card (Hidden for Field Supervisor) */}
+      {!isSupervisor && (
+        <div className="px-3.5 pb-2">
+          <div
+            onClick={() => onTabChange('settings')}
+            className="p-3 rounded-2xl bg-gradient-to-br from-purple-50 via-white to-orange-50/60 border border-purple-200 hover:border-orange-400 transition cursor-pointer shadow-2xs group"
+          >
+            <div className="flex items-center justify-between text-[11px] font-black text-[#3B0764] mb-1.5">
+              <span className="flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5 text-orange-500" /> Sri Lanka SMS Gateway
+              </span>
+              <span className="flex items-center gap-1 text-[10px] font-extrabold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-md">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                {smsGatewayInfo.is_simulation ? 'Simulation' : 'Live'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-slate-600">
+              <span className="font-mono text-[#6D28D9] font-black">
+                {smsGatewayInfo.provider === 'TEXT_LK' ? 'Text.lk (REST v3)' : smsGatewayInfo.provider}
+              </span>
+              <span className="text-[10px] text-orange-600 group-hover:translate-x-0.5 transition font-black flex items-center">
+                Configure <ChevronRight className="w-3 h-3 ml-0.5" />
+              </span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Live Operations Status Panel */}
       <div className="p-3.5 border border-purple-100 bg-purple-50/40 m-3 rounded-2xl space-y-2">
@@ -288,7 +324,7 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
                   {currentUser.full_name}
                 </div>
                 <div className="text-[9px] font-black uppercase tracking-wider text-orange-600">
-                  Operations Control Dashboard
+                  {isSupervisor ? 'Field Supervisor (Limited Access)' : `${effectiveRole} Portal`}
                 </div>
               </div>
             </div>

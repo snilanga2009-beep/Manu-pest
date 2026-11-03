@@ -10,8 +10,10 @@ import {
   restoreDatabaseBackup,
   deleteDatabaseBackup,
   getBackupDownloadUrl,
-  getLiveDatabaseDownloadUrl
+  getLiveDatabaseDownloadUrl,
+  resetAllSystemData
 } from '../api';
+import { clearOfflineJobsAndQueue } from '../services/offlineStorage';
 
 export default function BackupDatabaseView() {
   const [stats, setStats] = useState(null);
@@ -21,6 +23,9 @@ export default function BackupDatabaseView() {
   const [feedback, setFeedback] = useState(null);
   const [restoreModalBackup, setRestoreModalBackup] = useState(null);
   const [restoring, setRestoring] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetFleetAlso, setResetFleetAlso] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -84,6 +89,7 @@ export default function BackupDatabaseView() {
     try {
       const res = await restoreDatabaseBackup(restoreModalBackup.id);
       if (res.success) {
+        await clearOfflineJobsAndQueue();
         alert(res.message || 'Database restored successfully!');
         setRestoreModalBackup(null);
         await loadData();
@@ -92,6 +98,30 @@ export default function BackupDatabaseView() {
       alert(`Error during restore: ${err.message}`);
     } finally {
       setRestoring(false);
+    }
+  };
+
+  const handleConfirmResetAllData = async () => {
+    setResetting(true);
+    setFeedback(null);
+    try {
+      const res = await resetAllSystemData({ reset_fleet: resetFleetAlso });
+      if (res.success) {
+        await clearOfflineJobsAndQueue();
+        setShowResetModal(false);
+        setFeedback({
+          type: 'success',
+          message: res.message || 'All operational data has been cleared for a fresh start!'
+        });
+        await loadData();
+      }
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Failed to reset system data.'
+      });
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -112,7 +142,7 @@ export default function BackupDatabaseView() {
               </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
-              Automatic zero-downtime database backups run on the 1st of every month. Create instant snapshots anytime, or download the live SQLite database file.
+              Automatic zero-downtime database backups run on the 1st of every month. Create instant snapshots anytime, download the live SQLite database file, or perform a clean system reset.
             </p>
           </div>
         </div>
@@ -127,6 +157,16 @@ export default function BackupDatabaseView() {
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
           </button>
 
+          <button
+            type="button"
+            onClick={() => setShowResetModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 font-bold text-xs border border-rose-400/30 transition cursor-pointer shadow-xs"
+            title="Clear all jobs, customers, and history for a fresh start"
+          >
+            <Trash2 className="w-4 h-4 text-rose-400" />
+            <span>Reset All Data (Fresh Start)</span>
+          </button>
+
           <a
             href={getLiveDatabaseDownloadUrl()}
             download
@@ -134,7 +174,7 @@ export default function BackupDatabaseView() {
             title="Directly download current active database file"
           >
             <ArrowDownToLine className="w-4 h-4 text-emerald-400" />
-            <span>Download Live JSON</span>
+            <span>Download Live DB</span>
           </a>
 
           <button
@@ -179,7 +219,7 @@ export default function BackupDatabaseView() {
           </div>
           <div className="text-[11px] text-slate-500 flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            <span>Supabase PostgreSQL &bull; Cloud HA Active</span>
+            <span>SQLite WAL Engine &bull; Active</span>
           </div>
         </div>
 
@@ -236,7 +276,7 @@ export default function BackupDatabaseView() {
           <div>
             <h4 className="font-extrabold text-slate-900 text-sm">Automated Monthly Backup Policy</h4>
             <p className="text-slate-600 text-xs mt-0.5 max-w-2xl">
-              The system automatically captures an atomic snapshot of the entire database on the 1st of every month at midnight (Asia/Colombo). Each monthly archive is saved with month stamp (<code className="bg-white/80 px-1 py-0.5 rounded text-indigo-700 font-bold font-mono">monthly-backup-YYYY-MM.json</code>) and preserved indefinitely.
+              The system automatically captures an atomic snapshot of the entire database on the 1st of every month at midnight (Asia/Colombo). Each monthly archive is saved with month stamp (<code className="bg-white/80 px-1 py-0.5 rounded text-indigo-700 font-bold font-mono">monthly-backup-YYYY-MM.db</code>) and preserved indefinitely.
             </p>
           </div>
         </div>
@@ -256,7 +296,7 @@ export default function BackupDatabaseView() {
         <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h3 className="font-extrabold text-slate-900 text-base">Monthly & Historical Backup Snapshots</h3>
-            <p className="text-xs text-slate-500">Cloud database snapshots preserved in Supabase metadata catalog & transaction archive</p>
+            <p className="text-xs text-slate-500">Database snapshots preserved in local backup catalog & archive</p>
           </div>
           <span className="text-xs text-slate-400 font-medium">
             Showing {backups.length} snapshot(s)
@@ -416,6 +456,67 @@ export default function BackupDatabaseView() {
                 className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md shadow-rose-200 disabled:opacity-50 transition cursor-pointer"
               >
                 {restoring ? 'Restoring Database...' : 'Yes, Restore Database'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset All Operational Data Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2 text-rose-600">
+                <Trash2 className="w-5 h-5" />
+                <h3 className="font-extrabold text-slate-900 text-sm">Reset All System Data (Fresh Start)</h3>
+              </div>
+              <button onClick={() => setShowResetModal(false)} className="text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-600">
+              <p>
+                This will wipe all operational records so you can start with a 100% clean workspace:
+              </p>
+              <ul className="list-disc pl-5 space-y-1 text-slate-700 font-medium">
+                <li>All Scheduled, In-Progress & Completed Jobs</li>
+                <li>All Customers, Locations & Recurring Contracts</li>
+                <li>All Job Audit Logs, Photos, Notifications & SMS Logs</li>
+              </ul>
+              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-900 text-[11px] leading-relaxed">
+                <strong>Preserved Configuration:</strong> Staff & Technician accounts, Treatment codes, Branding, and SMS Gateway settings are preserved. A safety backup snapshot is automatically saved before resetting.
+              </div>
+
+              <label className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={resetFleetAlso}
+                  onChange={(e) => setResetFleetAlso(e.target.checked)}
+                  className="rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                />
+                <span className="text-xs font-semibold text-slate-700">
+                  Also clear all Vehicles & Machines from Fleet
+                </span>
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowResetModal(false)}
+                className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-xl text-xs cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmResetAllData}
+                disabled={resetting}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md shadow-rose-200 disabled:opacity-50 transition cursor-pointer"
+              >
+                {resetting ? 'Resetting System...' : 'Yes, Reset All Data Now'}
               </button>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Users, MapPin, Phone, Mail, Building, Edit, X, Check, FileText, Compass, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Users, MapPin, Phone, Mail, Building, Edit, X, Check, FileText, Compass, AlertCircle } from 'lucide-react';
 import { updateCustomer } from '../api';
+import GpsCoordinatePicker from './GpsCoordinatePicker';
 
 export default function EditCustomerModal({ isOpen, customer, onClose, onCustomerUpdated }) {
   const [formData, setFormData] = useState({
@@ -89,7 +90,7 @@ export default function EditCustomerModal({ isOpen, customer, onClose, onCustome
                 <h2 className="text-lg font-black tracking-tight">Edit Customer Details</h2>
               </div>
               <p className="text-xs text-blue-100 mt-0.5">
-                Update account data, direct contacts, addresses, coordinates and instructions.
+                Update account data, direct contacts, addresses, GPS coordinates and instructions.
               </p>
             </div>
           </div>
@@ -191,7 +192,7 @@ export default function EditCustomerModal({ isOpen, customer, onClose, onCustome
           <div>
             <div className="flex items-center gap-2 text-slate-400 font-bold uppercase tracking-wider text-[11px] mb-3 pb-1 border-b border-slate-100">
               <MapPin className="w-3.5 h-3.5 text-blue-600" />
-              <span>Location, Address & Coordinates</span>
+              <span>Location, Address & GPS Coordinates</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -221,29 +222,19 @@ export default function EditCustomerModal({ isOpen, customer, onClose, onCustome
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="font-bold text-slate-800 flex items-center gap-1.5">
-                  <Compass className="w-3.5 h-3.5 text-slate-400" /> Latitude (GPS)
-                </label>
-                <input
-                  type="text"
-                  name="latitude"
-                  value={formData.latitude}
-                  onChange={handleChange}
-                  className="w-full bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-200 focus:bg-white focus:border-blue-500 focus:outline-hidden transition font-mono"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-bold text-slate-800 flex items-center gap-1.5">
-                  <Compass className="w-3.5 h-3.5 text-slate-400" /> Longitude (GPS)
-                </label>
-                <input
-                  type="text"
-                  name="longitude"
-                  value={formData.longitude}
-                  onChange={handleChange}
-                  className="w-full bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-200 focus:bg-white focus:border-blue-500 focus:outline-hidden transition font-mono"
+              <div className="sm:col-span-2">
+                <GpsCoordinatePicker
+                  latitude={formData.latitude}
+                  longitude={formData.longitude}
+                  locationText={formData.location || formData.address}
+                  onChange={({ latitude, longitude, locationName }) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      latitude: latitude !== undefined ? latitude : prev.latitude,
+                      longitude: longitude !== undefined ? longitude : prev.longitude,
+                      location: (!prev.location && locationName) ? locationName : prev.location
+                    }));
+                  }}
                 />
               </div>
             </div>

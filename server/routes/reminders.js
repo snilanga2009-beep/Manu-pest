@@ -1,7 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { formatDateColombo } = require('../services/recurringEngine');
+const {
+  formatDateColombo,
+  parseDateColombo,
+  generateJobsForDueServices,
+  generateRecurringScheduleSequence
+} = require('../services/recurringEngine');
 const {
   DEFAULT_SMS_TEMPLATES,
   getSmsSettings,
@@ -22,7 +27,7 @@ function formatWhatsAppPhone(phone) {
   return digits;
 }
 
-// Get Reminder Queue (Upcoming tomorrow, Today, and Overdue jobs)
+// Get Reminder Queue (Upcoming tomorrow, Today, Overdue, and 30d/14d/7d/1d/0d Milestone Intervals)
 router.get('/queue', (req, res) => {
   const today = formatDateColombo(new Date());
 
@@ -36,6 +41,33 @@ router.get('/queue', (req, res) => {
   const baseUrl = smsSettings.system_url && smsSettings.system_url.trim()
     ? smsSettings.system_url.trim().replace(/\/$/, '')
     : `${protocol}://${host}`;
+
+  // Ensure upcoming 30-day recurring jobs are generated so 30d/14d/7d/1d/0d milestones are populated
+  try {
+    generateJobsForDueServices(30);
+
+    // If any active recurring service has no future job in the next 30 days, generate its upcoming sequence starting from today/next cycle
+    const activeRecWithoutUpcoming = db.prepare(`
+      SELECT r.id, r.next_service_date
+      FROM recurring_services r
+      JOIN customers c ON r.customer_id = c.id
+      WHERE r.status = 'ACTIVE' AND c.is_active = 1
+        AND NOT EXISTS (
+          SELECT 1 FROM jobs j
+          WHERE j.recurring_service_id = r.id
+            AND j.scheduled_date >= ?
+            AND j.status IN ('TO_BE_DONE', 'ASSIGNED', 'CONFIRMED', 'IN_PROGRESS')
+        )
+      LIMIT 40
+    `).all(today);
+
+    for (const rec of activeRecWithoutUpcoming) {
+      const startFrom = rec.next_service_date && rec.next_service_date >= today ? rec.next_service_date : today;
+      generateRecurringScheduleSequence(rec.id, { horizonMonths: 2, firstDate: startFrom });
+    }
+  } catch (e) {
+    // Non-fatal safeguard
+  }
 
   // Tomorrow's jobs needing 24-hour reminder
   const tomorrowJobs = db.prepare(`
@@ -92,6 +124,98 @@ router.get('/queue', (req, res) => {
     GROUP BY tech.id
   `).all(today);
 
+  // 30d, 14d, 7d, 1d, and Due Date (0d) Milestone Jobs
+  const horizon30DateObj = parseDateColombo(today);
+  horizon30DateObj.setUTCDate(horizon30DateObj.getUTCDate() + 30);
+  const horizon30Date = formatDateColombo(horizon30DateObj);
+
+  const upcoming30JobsRaw = db.prepare(`
+    SELECT j.*, c.name as customer_name, c.phone as customer_phone, c.contact_person, c.customer_code,
+           l.location_name, l.address as location_address,
+           t.code as treatment_code, t.name as treatment_name, t.color_hex as treatment_color,
+           tech.full_name as technician_name, tech.phone as technician_phone,
+           r.frequency as recurring_frequency
+    FROM jobs j
+    JOIN customers c ON j.customer_id = c.id
+    LEFT JOIN customer_locations l ON j.location_id = l.id
+    JOIN treatments t ON j.treatment_id = t.id
+    LEFT JOIN staff tech ON j.technician_id = tech.id
+    LEFT JOIN recurring_services r ON j.recurring_service_id = r.id
+    WHERE j.scheduled_date >= ? AND j.scheduled_date <= ?
+      AND j.status IN ('TO_BE_DONE', 'ASSIGNED', 'CONFIRMED', 'IN_PROGRESS')
+    ORDER BY j.scheduled_date ASC, j.scheduled_time ASC
+  `).all(today, horizon30Date);
+
+  const todayMs = parseDateColombo(today).getTime();
+
+  const enrichMilestoneJob = (j) => {
+    const jobMs = parseDateColombo(j.scheduled_date).getTime();
+    const daysRemaining = Math.max(0, Math.round((jobMs - todayMs) / (1000 * 60 * 60 * 24)));
+
+    let milestoneId = '30d';
+    let milestoneLabel = '30 Days Before';
+    if (daysRemaining === 0) {
+      milestoneId = '0d';
+      milestoneLabel = 'Due Date (0 Days)';
+    } else if (daysRemaining === 1) {
+      milestoneId = '1d';
+      milestoneLabel = '1 Day Before';
+    } else if (daysRemaining === 2) {
+      milestoneId = '2d';
+      milestoneLabel = '2 Days Before';
+    } else if (daysRemaining <= 7) {
+      milestoneId = '7d';
+      milestoneLabel = '7 Days Before';
+    } else if (daysRemaining <= 14) {
+      milestoneId = '14d';
+      milestoneLabel = '14 Days Before';
+    } else {
+      milestoneId = '30d';
+      milestoneLabel = '30 Days Before';
+    }
+
+    const norm = normalizeSriLankaPhone(j.customer_phone);
+    const customMsg = daysRemaining === 0
+      ? buildArrivalReminderMessage(j, baseUrl)
+      : build24hReminderMessage(j, baseUrl);
+
+    return {
+      ...j,
+      days_remaining: daysRemaining,
+      milestone_id: milestoneId,
+      milestone_label: milestoneLabel,
+      whatsapp_phone: formatWhatsAppPhone(j.customer_phone),
+      whatsapp_message: customMsg,
+      sms_phone: norm.isValid ? norm.normalized : null,
+      sms_formatted: norm.isValid ? norm.nationalFormat : null,
+      sms_operator: norm.isValid ? norm.operator : null,
+      sms_is_valid: norm.isValid,
+      has_valid_phone: norm.isValid,
+      sms_message: customMsg
+    };
+  };
+
+  const allMilestoneJobs = upcoming30JobsRaw.map(enrichMilestoneJob);
+  const milestones = {
+    all: allMilestoneJobs,
+    '30d': allMilestoneJobs.filter(j => j.milestone_id === '30d'),
+    '14d': allMilestoneJobs.filter(j => j.milestone_id === '14d'),
+    '7d': allMilestoneJobs.filter(j => j.milestone_id === '7d'),
+    '2d': allMilestoneJobs.filter(j => j.milestone_id === '2d'),
+    '1d': allMilestoneJobs.filter(j => j.milestone_id === '1d'),
+    '0d': allMilestoneJobs.filter(j => j.milestone_id === '0d')
+  };
+
+  const milestone_counts = {
+    all: milestones.all.length,
+    '30d': milestones['30d'].length,
+    '14d': milestones['14d'].length,
+    '7d': milestones['7d'].length,
+    '2d': milestones['2d'].length,
+    '1d': milestones['1d'].length,
+    '0d': milestones['0d'].length
+  };
+
   res.json({
     success: true,
     today,
@@ -102,6 +226,8 @@ router.get('/queue', (req, res) => {
       overdue_followups: overdueJobs.length,
       active_technicians: techniciansWithRoutes.length
     },
+    milestones,
+    milestone_counts,
     system_base_url: baseUrl,
     tomorrow_jobs: tomorrowJobs.map(j => {
       const norm = normalizeSriLankaPhone(j.customer_phone);

@@ -20,6 +20,7 @@ import BackupDatabaseView from './views/BackupDatabaseView';
 import CreateCustomerModal from './components/CreateCustomerModal';
 import FirebasePushSettingsView from './views/FirebasePushSettingsView';
 import TechnicianLoginView from './views/TechnicianLoginView';
+import LiveMonitorView from './views/LiveMonitorView';
 import { getPersistentTechSession, clearPersistentTechSession } from './services/offlineStorage';
 
 import { getDashboardStats } from './api';
@@ -33,8 +34,8 @@ export default function App() {
     ? pathname.replace(/^\/confirmations\/?/, '').split('/')[0]?.split('?')[0]
     : '';
 
-  // Direct Technician Deep-Link or PWA standalone launcher
-  const isDirectTechRoute = pathname.startsWith('/tech') || pathname.startsWith('/technician') || urlParams.has('tech') || urlParams.has('job') || urlParams.get('view') === 'tech' || urlParams.get('app') === 'tech';
+  // Direct Technician or Manager App Deep-Link or PWA standalone launcher
+  const isDirectTechRoute = pathname.startsWith('/tech') || pathname.startsWith('/technician') || pathname.startsWith('/manager') || urlParams.has('tech') || urlParams.has('manager') || urlParams.has('job') || urlParams.get('view') === 'tech' || urlParams.get('app') === 'tech' || urlParams.get('app') === 'manager';
 
   const isMobileOrTabletUserAgent = typeof navigator !== 'undefined' && (
     /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(navigator.userAgent || '') ||
@@ -51,13 +52,6 @@ export default function App() {
 
   // Extract direct job id from URL: /tech?job=123 OR /tech/job/123 OR ?job=123
   const directJobIdFromUrl = urlParams.get('job') || (pathname.startsWith('/tech/job/') ? pathname.replace(/^\/tech\/job\/?/, '').split('/')[0]?.split('?')[0] : null);
-
-  const DEFAULT_USER = {
-    id: 1,
-    username: 'admin',
-    full_name: 'Operations Manager',
-    role: 'ADMIN'
-  };
 
   // Authenticated User State: checks localStorage/sessionStorage. Defaults to null if logged out.
   const [currentUser, setCurrentUser] = useState(() => {
@@ -79,6 +73,13 @@ export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
     if (isDirectConfirmationRoute) return 'confirmations';
     if (isPhoneOrPwa) return 'mobile_home';
+    const stored = (typeof window !== 'undefined') ? (localStorage.getItem('auth_user') || sessionStorage.getItem('auth_user')) : null;
+    if (stored) {
+      try {
+        const u = JSON.parse(stored);
+        if (u?.role === 'SUPERVISOR') return 'jobs';
+      } catch (e) {}
+    }
     return 'dashboard';
   });
 
@@ -93,7 +94,18 @@ export default function App() {
     return isPhoneOrPwa ? 'TECHNICIAN' : 'ADMIN';
   });
 
-  const [isMobileView, setIsMobileView] = useState(() => isPhoneOrPwa);
+  const [isMobileView, setIsMobileView] = useState(() => {
+    try {
+      const stored = localStorage.getItem('auth_user') || sessionStorage.getItem('auth_user');
+      if (stored) {
+        const u = JSON.parse(stored);
+        if (u?.appMode === 'MANAGER_APP' || u?.appMode === 'TECH_APP' || u?.role === 'TECHNICIAN') {
+          return true;
+        }
+      }
+    } catch (e) {}
+    return isPhoneOrPwa;
+  });
 
   // Verify session on app boot
   useEffect(() => {
@@ -112,24 +124,37 @@ export default function App() {
         })
         .then(data => {
           if (data.success && data.user) {
-            setCurrentUser(data.user);
-            if (isDirectTechRoute || isPhoneOrPwa) {
-              setCurrentRole('TECHNICIAN');
+            let storedUser = null;
+            try {
+              storedUser = JSON.parse(localStorage.getItem('auth_user') || sessionStorage.getItem('auth_user') || 'null');
+            } catch (e) {}
+            const effectiveUser = {
+              ...data.user,
+              appMode: storedUser?.appMode || (String(token).startsWith('mgr_') ? 'MANAGER_APP' : undefined)
+            };
+            setCurrentUser(effectiveUser);
+            const resolvedRole = effectiveUser.role || 'TECHNICIAN';
+            setCurrentRole(resolvedRole);
+
+            if (resolvedRole === 'SUPERVISOR') {
+              setIsMobileView(false);
+              const allowedTabs = ['jobs', 'live_monitor', 'customers'];
+              if (!allowedTabs.includes(activeTab)) {
+                setActiveTab('jobs');
+              }
+            } else if (isDirectTechRoute || isPhoneOrPwa || effectiveUser.appMode === 'MANAGER_APP' || effectiveUser.appMode === 'TECH_APP' || resolvedRole === 'TECHNICIAN') {
               setIsMobileView(true);
               if (activeTab === 'dashboard') setActiveTab('mobile_home');
-            } else {
-              setCurrentRole(data.user.role);
-              if (data.user.role === 'TECHNICIAN') {
-                setIsMobileView(true);
-                setActiveTab('mobile_home');
-                localStorage.setItem('tech_preferred_id', String(data.user.id));
+              if (resolvedRole === 'TECHNICIAN') {
+                localStorage.setItem('tech_preferred_id', String(effectiveUser.id));
               }
             }
           } else {
             getPersistentTechSession().then(sess => {
               if (sess?.technician) {
+                const sessRole = sess.role || sess.technician.role || 'TECHNICIAN';
                 setCurrentUser(sess.technician);
-                setCurrentRole('TECHNICIAN');
+                setCurrentRole(sessRole);
                 setIsMobileView(true);
                 setActiveTab('mobile_home');
               } else {
@@ -142,8 +167,9 @@ export default function App() {
           getPersistentTechSession().then(sess => {
             const user = sess?.technician || (sess?.id ? sess : null);
             if (user) {
+              const sessRole = sess?.role || user.role || 'TECHNICIAN';
               setCurrentUser(user);
-              setCurrentRole('TECHNICIAN');
+              setCurrentRole(sessRole);
               setIsMobileView(true);
               setActiveTab('mobile_home');
             } else {
@@ -153,12 +179,13 @@ export default function App() {
         })
         .finally(() => setIsAuthChecking(false));
     } else {
-      // Check permanent IndexedDB technician session
+      // Check permanent IndexedDB technician/manager session
       getPersistentTechSession().then(sess => {
         const user = sess?.technician || (sess?.id ? sess : null);
         if (user) {
+          const sessRole = sess?.role || user.role || 'TECHNICIAN';
           setCurrentUser(user);
-          setCurrentRole('TECHNICIAN');
+          setCurrentRole(sessRole);
           setIsMobileView(true);
           setActiveTab('mobile_home');
         } else if (isPhoneOrPwa) {
@@ -171,16 +198,38 @@ export default function App() {
     }
   }, [isDirectTechRoute, isPhoneOrPwa]);
 
+  // Strict Field Supervisor tab scoping: only allowed 'jobs', 'live_monitor', 'customers'
+  useEffect(() => {
+    if (currentRole === 'SUPERVISOR') {
+      const allowedSupervisorTabs = ['jobs', 'live_monitor', 'customers'];
+      if (!allowedSupervisorTabs.includes(activeTab)) {
+        setActiveTab('jobs');
+      }
+    }
+  }, [currentRole, activeTab]);
+
   const handleLoginSuccess = (user, token) => {
+    const resolvedRole = user.role || 'TECHNICIAN';
     setCurrentUser(user);
-    setCurrentRole(user.role || 'TECHNICIAN');
-    if (user.role === 'TECHNICIAN' || isPhoneOrPwa) {
+    setCurrentRole(resolvedRole);
+    const openMobileApp =
+      resolvedRole === 'TECHNICIAN' ||
+      user.appMode === 'MANAGER_APP' ||
+      user.appMode === 'TECH_APP' ||
+      (token && (String(token).startsWith('mgr_') || String(token).startsWith('tech_'))) ||
+      isPhoneOrPwa;
+
+    if (openMobileApp) {
       setIsMobileView(true);
       setActiveTab('mobile_home');
-      localStorage.setItem('tech_preferred_id', String(user.id));
+      if (resolvedRole === 'TECHNICIAN') {
+        localStorage.setItem('tech_preferred_id', String(user.id));
+      } else {
+        localStorage.removeItem('tech_preferred_id');
+      }
     } else {
       setIsMobileView(false);
-      setActiveTab('dashboard');
+      setActiveTab(resolvedRole === 'SUPERVISOR' ? 'jobs' : 'dashboard');
     }
   };
 
@@ -318,7 +367,7 @@ export default function App() {
     );
   }
 
-  // If user is not authenticated, show Login Screen (Technician phone login on mobile, LoginPortal for desktop)
+  // If user is not authenticated, show Login Screen
   if (!currentUser) {
     if (isPhoneOrPwa && !urlParams.get('portal')) {
       if (directJobIdFromUrl) {
@@ -347,6 +396,9 @@ export default function App() {
     );
   }
 
+  const isManagerMobileApp = currentRole === 'MANAGER' || currentUser?.role === 'MANAGER';
+  const mobileEffectiveRole = isManagerMobileApp ? 'MANAGER' : 'TECHNICIAN';
+
   return (
     <div className="min-h-screen bg-[#F8F6FC] text-slate-900 flex flex-col">
 
@@ -370,31 +422,77 @@ export default function App() {
         />
       )}
 
-      {/* Mobile App Mode (Android + iPhone + iPad) or Desktop Admin Mode */}
+      {/* Mobile App Mode (Technician App or Manager App) or Desktop Admin Mode */}
       {isMobileView ? (
         !currentUser && !directJobIdFromUrl ? (
           <TechnicianLoginView onLoginSuccess={handleLoginSuccess} />
         ) : (
           <div className="flex flex-col bg-[#F5F3FF] min-h-[100dvh] h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-hidden select-none relative">
-            {/* Desktop Tester Switch Back Button (Only for Admin / Manager previewing mobile app) */}
-            {typeof window !== 'undefined' && window.innerWidth >= 768 && (currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER') && (
-              <div className="fixed bottom-20 right-3 z-50">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMobileView(false);
-                    setActiveTab('dashboard');
-                  }}
-                  className="px-3.5 py-2 rounded-full bg-slate-900/90 hover:bg-slate-950 text-white text-[11px] font-bold shadow-xl backdrop-blur-md flex items-center gap-1.5 border border-white/20 transition cursor-pointer"
-                >
-                  <span>🖥️ Return to Desktop Dashboard</span>
-                </button>
+            {/* Desktop Mode & App Role Switcher Floating Bar */}
+            {typeof window !== 'undefined' && window.innerWidth >= 768 && (
+              <div className="fixed bottom-20 right-3 z-50 flex flex-col items-end gap-1.5">
+                <div className="flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md p-1.5 rounded-full border border-white/20 shadow-xl">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentRole('TECHNICIAN');
+                      setActiveTab('mobile_home');
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-[11px] font-black transition cursor-pointer ${
+                      !isManagerMobileApp
+                        ? 'bg-[#F97316] text-white shadow-sm'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    👷 Tech App (Today Only)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentRole('MANAGER');
+                      setActiveTab('mobile_home');
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-[11px] font-black transition cursor-pointer ${
+                      isManagerMobileApp
+                        ? 'bg-[#6D28D9] text-white shadow-sm'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    👔 Manager App
+                  </button>
+                  {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMobileView(false);
+                        setActiveTab('dashboard');
+                      }}
+                      className="px-3 py-1.5 rounded-full bg-white/15 hover:bg-white/25 text-white text-[11px] font-bold transition cursor-pointer"
+                    >
+                      🖥️ Desktop
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
             {/* Clean Main Content Area with safe scrolling for Android, iPhone & iPad */}
             <main className="flex-1 w-full max-w-4xl mx-auto overflow-y-auto overflow-x-hidden overscroll-contain">
-              {(activeTab === 'mobile_home' || activeTab === 'tomorrow_tab' || activeTab === 'dashboard') && (
+              {/* For Technician App: only allow mobile_home (Today Jobs) and profile */}
+              {(!isManagerMobileApp && activeTab !== 'profile') && (
+                <MobileTechnicianView
+                  onSelectJob={handleSelectJob}
+                  initialJobId={selectedJobId}
+                  initialMainTab="today"
+                  currentRole="TECHNICIAN"
+                  activeTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
+                  currentUser={currentUser}
+                  onLogout={handleLogout}
+                />
+              )}
+
+              {/* For Manager App: support Today, Tomorrow, Master Calendar, All Jobs, Profile */}
+              {isManagerMobileApp && (activeTab === 'mobile_home' || activeTab === 'tomorrow_tab' || activeTab === 'dashboard') && (
                 <MobileTechnicianView
                   onSelectJob={handleSelectJob}
                   initialJobId={selectedJobId}
@@ -403,27 +501,31 @@ export default function App() {
                     if (tab === 'tomorrow') setActiveTab('tomorrow_tab');
                     else if (tab === 'today') setActiveTab('mobile_home');
                   }}
-                  activeTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
+                  onOpenCalendar={() => setActiveTab('calendar')}
+                  currentRole="MANAGER"
+                  activeTechnicianId=""
                   currentUser={currentUser}
                   onLogout={handleLogout}
                 />
               )}
-              {activeTab === 'calendar' && (
+              {isManagerMobileApp && activeTab === 'calendar' && (
                 <div className="pb-28 pt-2 px-2 sm:px-4">
                   <CalendarView
                     onSelectJob={handleSelectJob}
-                    currentRole="TECHNICIAN"
-                    currentTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
+                    onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
+                    currentRole="MANAGER"
+                    currentTechnicianId=""
                   />
                 </div>
               )}
-              {activeTab === 'jobs' && (
+              {isManagerMobileApp && activeTab === 'jobs' && (
                 <div className="pb-28 pt-2 px-2 sm:px-4">
                   <JobsView
                     initialJobId={selectedJobId}
                     onSelectCustomer={handleSelectCustomer}
-                    currentRole="TECHNICIAN"
-                    currentTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
+                    onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
+                    currentRole="MANAGER"
+                    currentTechnicianId=""
                     isMobileView={true}
                   />
                 </div>
@@ -439,9 +541,10 @@ export default function App() {
               )}
             </main>
 
-            {/* Fixed PWA Bottom Navigation (safe area for Android + iPhone + iPad) */}
+            {/* Fixed PWA Bottom Navigation (role-aware: Tech App shows Today + Profile; Manager App shows Today, Tomorrow, Calendar, All Jobs, Profile) */}
             <MobileBottomNav
               activeTab={activeTab === 'dashboard' ? 'mobile_home' : activeTab}
+              currentRole={mobileEffectiveRole}
               onTabChange={(nextTab) => {
                 setSelectedJobId(null);
                 setActiveTab(nextTab);
@@ -459,6 +562,7 @@ export default function App() {
             counters={dashboardData?.counters || {}}
             onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
             currentUser={currentUser}
+            currentRole={currentRole}
             onLogout={handleLogout}
             onSwitchUser={handleSwitchUser}
           />
@@ -471,11 +575,18 @@ export default function App() {
                 onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
               />
             )}
+            {activeTab === 'live_monitor' && (
+              <LiveMonitorView
+                onSelectJob={handleSelectJob}
+              />
+            )}
             {activeTab === 'mobile_home' && (
               <MobileTechnicianView
                 onSelectJob={handleSelectJob}
                 initialJobId={selectedJobId}
-                activeTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
+                currentRole={currentRole}
+                onOpenCalendar={() => setActiveTab('calendar')}
+                activeTechnicianId={currentRole === 'TECHNICIAN' ? currentUser?.id : ''}
                 currentUser={currentUser}
                 onLogout={handleLogout}
               />

@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Briefcase, Plus, Search, Filter, Calendar as CalendarIcon,
   PlayCircle, CheckCircle2, Clock, AlertTriangle, XCircle,
   MapPin, Phone, User, Check, X, Camera, PenTool, Edit, UserPlus,
   Users, HardHat, Copy, Send, ExternalLink, MessageSquare, Smartphone, Sparkles, Lock,
-  RefreshCw, Building, CheckCircle, Truck, Cpu, Wrench
+  RefreshCw, Building, CheckCircle, Truck, Cpu, Wrench, Download, Printer, Share2, LayoutGrid, List
 } from 'lucide-react';
 import {
   getJobs, getJobById, createJob, assignJob, bulkAssignJobs, getVehicles, getMachines, createVehicle, updateVehicle, deleteVehicle, createMachine,
@@ -13,6 +13,7 @@ import {
 } from '../api';
 import SignaturePad from '../components/SignaturePad';
 import EditJobModal from '../components/EditJobModal';
+import { downloadJobPdfReport, printJobReport, shareJobOnWhatsApp } from '../utils/jobExportUtils';
 
 export default function JobsView({
   initialJobId,
@@ -57,9 +58,17 @@ export default function JobsView({
   // Filters
   const [statusFilter, setStatusFilter] = useState(() => initialStatusFilter || '');
   const [dateFilter, setDateFilter] = useState('');
+  const [dateFromFilter, setDateFromFilter] = useState('');
+  const [dateToFilter, setDateToFilter] = useState('');
   const [technicianFilter, setTechnicianFilter] = useState(() => (isTechnicianMode ? getEffectiveTechId() : ''));
   const [treatmentFilter, setTreatmentFilter] = useState('');
+  const [assignmentFilter, setAssignmentFilter] = useState(''); // '' | 'ASSIGNED' | 'UNASSIGNED'
+  const [vehicleFilter, setVehicleFilter] = useState('');
+  const [machineFilter, setMachineFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [viewMode, setViewMode] = useState('table'); // 'table' | 'cards'
+  const [fleetVehicles, setFleetVehicles] = useState([]);
+  const [fleetMachines, setFleetMachines] = useState([]);
 
   useEffect(() => {
     if (initialStatusFilter !== undefined && initialStatusFilter !== '') {
@@ -329,37 +338,212 @@ export default function JobsView({
 
   const selectedCustomerObj = customers.find(c => String(c.id) === String(newJobForm.customer_id));
 
+  const [rawJobs, setRawJobs] = useState([]);
+  const [serverCounts, setServerCounts] = useState(null);
+
   const loadJobs = async () => {
     setLoading(true);
     try {
-      const effectiveTech = isTechnicianMode ? (activeTechId || getEffectiveTechId()) : technicianFilter;
+      const effectiveTech = isTechnicianMode ? (activeTechId || getEffectiveTechId()) : (technicianFilter || undefined);
       const res = await getJobs({
-        status: statusFilter,
-        date: dateFilter,
+        status: statusFilter || undefined,
+        date: dateFilter || undefined,
+        from_date: (!dateFilter && dateFromFilter) ? dateFromFilter : undefined,
+        to_date: (!dateFilter && dateToFilter) ? dateToFilter : undefined,
         technician_id: effectiveTech || undefined,
-        treatment_id: treatmentFilter,
-        search,
-        limit: 100
+        assignment: assignmentFilter || undefined,
+        treatment_id: treatmentFilter || undefined,
+        vehicle_no: vehicleFilter || undefined,
+        machine_name: machineFilter || undefined,
+        search: search || undefined,
+        limit: 1000
       });
       let jobList = res.jobs || [];
-      // Strict client-side guarantee: Never show another technician's job in technician mode across all status filters
       if (isTechnicianMode && effectiveTech) {
-        jobList = jobList.filter(j => String(j.technician_id) === String(effectiveTech));
+        jobList = jobList.filter(j => String(j.technician_id || j.assigned_technician_id) === String(effectiveTech));
       }
-      // Strict client-side date separation: if dateFilter is set, only show jobs matching that exact effective date
       if (dateFilter) {
-        jobList = jobList.filter(j => {
-          const effDate = getJobEffectiveDate(j);
-          return effDate === dateFilter;
-        });
+        jobList = jobList.filter(j => getJobEffectiveDate(j) === dateFilter);
       }
-      setJobs(jobList);
-      setTotal(jobList.length);
+      setRawJobs(jobList);
+      setTotal(res.total !== undefined ? res.total : jobList.length);
+      if (res.counts) {
+        setServerCounts(res.counts);
+      }
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Compute KPI counts using exact database serverCounts (with fallback to rawJobs)
+  const kpiStats = useMemo(() => {
+    if (serverCounts) {
+      return {
+        all: serverCounts.all ?? rawJobs.length,
+        inProgress: serverCounts.in_progress ?? 0,
+        completed: serverCounts.completed ?? 0,
+        toDo: serverCounts.pending ?? 0,
+        assigned: serverCounts.assigned ?? 0,
+        toBeDone: serverCounts.to_be_done ?? 0,
+        confirmed: serverCounts.confirmed ?? 0,
+        postponed: serverCounts.postponed ?? 0,
+        cancelled: serverCounts.cancelled ?? 0,
+        overdue: serverCounts.overdue ?? 0,
+        unconfirmed: serverCounts.unconfirmed ?? 0,
+        unassigned: serverCounts.unassigned ?? 0,
+        scopeTotal: serverCounts.scope_total ?? serverCounts.all ?? rawJobs.length,
+        scopeUnassigned: serverCounts.scope_unassigned ?? serverCounts.unassigned ?? 0,
+        todayJobs: serverCounts.today_jobs ?? 0,
+        tomorrowJobs: serverCounts.tomorrow_jobs ?? 0,
+        allDatesJobs: serverCounts.all_dates_jobs ?? serverCounts.all ?? rawJobs.length,
+        byTechnician: serverCounts.by_technician || {}
+      };
+    }
+
+    return {
+      all: rawJobs.length,
+      inProgress: rawJobs.filter(j => j.status === 'IN_PROGRESS').length,
+      completed: rawJobs.filter(j => j.status === 'COMPLETED').length,
+      toDo: rawJobs.filter(j => j.status === 'ASSIGNED' || j.status === 'SCHEDULED' || j.status === 'TO_BE_DONE' || j.status === 'CONFIRMED' || j.status === 'PENDING').length,
+      assigned: rawJobs.filter(j => j.status === 'ASSIGNED').length,
+      toBeDone: rawJobs.filter(j => j.status === 'TO_BE_DONE').length,
+      confirmed: rawJobs.filter(j => j.status === 'CONFIRMED').length,
+      postponed: rawJobs.filter(j => j.status === 'POSTPONED').length,
+      cancelled: rawJobs.filter(j => j.status === 'CANCELLED').length,
+      overdue: rawJobs.filter(j => getJobEffectiveDate(j) < colomboToday && j.status !== 'COMPLETED' && j.status !== 'CANCELLED').length,
+      unconfirmed: rawJobs.filter(j => j.customer_confirmation_status !== 'CONFIRMED' && j.status !== 'COMPLETED' && j.status !== 'CANCELLED').length,
+      unassigned: rawJobs.filter(j => !j.technician_id && !j.assigned_technician_id && !j.technician_name && j.status !== 'CANCELLED').length,
+      scopeTotal: rawJobs.length,
+      scopeUnassigned: rawJobs.filter(j => !j.technician_id && !j.assigned_technician_id && !j.technician_name && j.status !== 'CANCELLED').length,
+      todayJobs: 0,
+      tomorrowJobs: 0,
+      allDatesJobs: rawJobs.length,
+      byTechnician: {}
+    };
+  }, [serverCounts, rawJobs, colomboToday]);
+
+  // Compute unique Vehicle & Machine options for filter dropdowns
+  const vehicleFilterOptions = useMemo(() => {
+    const set = new Set();
+    fleetVehicles.forEach(v => { if (v?.vehicle_number) set.add(v.vehicle_number); });
+    rawJobs.forEach(j => {
+      const v = j?.vehicle_no || j?.vehicle_number;
+      if (v) set.add(v);
+    });
+    return Array.from(set).sort();
+  }, [fleetVehicles, rawJobs]);
+
+  const machineFilterOptions = useMemo(() => {
+    const set = new Set();
+    fleetMachines.forEach(m => { if (m?.machine_name) set.add(m.machine_name); });
+    rawJobs.forEach(j => {
+      const m = j?.machine_name || j?.machine_type;
+      if (m) set.add(m);
+    });
+    return Array.from(set).sort();
+  }, [fleetMachines, rawJobs]);
+
+  // Apply all active filters instantaneously
+  const displayedJobs = useMemo(() => {
+    return rawJobs.filter(j => {
+      if (!j) return false;
+
+      // Date range filter (when exact dateFilter is not set)
+      const effDate = getJobEffectiveDate(j);
+      if (!dateFilter && dateFromFilter && effDate < dateFromFilter) return false;
+      if (!dateFilter && dateToFilter && effDate > dateToFilter) return false;
+
+      // Technician filter
+      if (!isTechnicianMode && technicianFilter) {
+        if (String(j.technician_id || j.assigned_technician_id || '') !== String(technicianFilter)) return false;
+      }
+
+      // Assignment status filter (Assigned vs Unassigned)
+      const hasTech = Boolean(j.technician_id || j.assigned_technician_id || j.technician_name);
+      if (assignmentFilter === 'ASSIGNED' && !hasTech) return false;
+      if (assignmentFilter === 'UNASSIGNED' && hasTech) return false;
+
+      // Treatment filter
+      if (treatmentFilter && String(j.treatment_id || '') !== String(treatmentFilter)) return false;
+
+      // Vehicle filter
+      if (vehicleFilter) {
+        const v = j.vehicle_no || j.vehicle_number || '';
+        if (v !== vehicleFilter) return false;
+      }
+
+      // Machine filter
+      if (machineFilter) {
+        const m = j.machine_name || j.machine_type || '';
+        if (m !== machineFilter) return false;
+      }
+
+      // Status filter
+      if (statusFilter) {
+        if (statusFilter === 'OVERDUE') {
+          if (!(effDate < colomboToday && j.status !== 'COMPLETED' && j.status !== 'CANCELLED' && j.status !== 'POSTPONED' && j.status !== 'IN_PROGRESS')) return false;
+        } else if (statusFilter === 'UNCONFIRMED') {
+          if (!(effDate >= colomboToday && j.customer_confirmation_status === 'UNCONFIRMED' && j.status !== 'COMPLETED' && j.status !== 'CANCELLED')) return false;
+        } else if (statusFilter === 'PENDING') {
+          if (!['TO_BE_DONE', 'ASSIGNED', 'CONFIRMED', 'SCHEDULED', 'PENDING'].includes(j.status)) return false;
+        } else if (statusFilter === 'ASSIGNED') {
+          if (j.status !== 'ASSIGNED' && j.status !== 'SCHEDULED') return false;
+        } else if (j.status !== statusFilter) {
+          return false;
+        }
+      }
+
+      // Search query
+      if (search && search.trim()) {
+        const q = search.toLowerCase().trim();
+        const match =
+          (j.job_code && j.job_code.toLowerCase().includes(q)) ||
+          (j.customer_name && j.customer_name.toLowerCase().includes(q)) ||
+          (j.customer_code && j.customer_code.toLowerCase().includes(q)) ||
+          (j.customer_phone && String(j.customer_phone).toLowerCase().includes(q)) ||
+          (j.location_name && j.location_name.toLowerCase().includes(q)) ||
+          (j.location_address && j.location_address.toLowerCase().includes(q)) ||
+          (j.technician_name && j.technician_name.toLowerCase().includes(q)) ||
+          (j.treatment_code && j.treatment_code.toLowerCase().includes(q)) ||
+          (j.treatment_name && j.treatment_name.toLowerCase().includes(q)) ||
+          (j.vehicle_no && j.vehicle_no.toLowerCase().includes(q)) ||
+          (j.vehicle_number && j.vehicle_number.toLowerCase().includes(q)) ||
+          (j.machine_name && j.machine_name.toLowerCase().includes(q)) ||
+          (j.team_members && j.team_members.toLowerCase().includes(q));
+        if (!match) return false;
+      }
+
+      return true;
+    });
+  }, [
+    rawJobs, dateFilter, dateFromFilter, dateToFilter, isTechnicianMode,
+    technicianFilter, assignmentFilter, treatmentFilter, vehicleFilter,
+    machineFilter, statusFilter, search, colomboToday
+  ]);
+
+  useEffect(() => {
+    setJobs(displayedJobs);
+  }, [displayedJobs]);
+
+  const hasActiveFilters = Boolean(
+    statusFilter || dateFilter || dateFromFilter || dateToFilter ||
+    (!isTechnicianMode && technicianFilter) || assignmentFilter ||
+    treatmentFilter || vehicleFilter || machineFilter || search
+  );
+
+  const handleClearAllFilters = () => {
+    setStatusFilter('');
+    setDateFilter('');
+    setDateFromFilter('');
+    setDateToFilter('');
+    if (!isTechnicianMode) setTechnicianFilter('');
+    setAssignmentFilter('');
+    setTreatmentFilter('');
+    setVehicleFilter('');
+    setMachineFilter('');
+    setSearch('');
   };
 
   const loadJobDetails = async (id) => {
@@ -378,11 +562,17 @@ export default function JobsView({
 
   useEffect(() => {
     loadJobs();
-  }, [statusFilter, dateFilter, technicianFilter, treatmentFilter, search, activeTechId]);
+  }, [
+    statusFilter, dateFilter, dateFromFilter, dateToFilter,
+    technicianFilter, assignmentFilter, treatmentFilter,
+    vehicleFilter, machineFilter, search, activeTechId
+  ]);
 
   useEffect(() => {
     getStaff().then(r => setStaff(r.staff || []));
     getTreatments().then(r => setTreatments(r.treatments || []));
+    getVehicles().then(r => setFleetVehicles(r.vehicles || [])).catch(() => {});
+    getMachines().then(r => setFleetMachines(r.machines || [])).catch(() => {});
     loadAllCustomers();
   }, []);
 
@@ -511,176 +701,600 @@ export default function JobsView({
   return (
     <div className="space-y-6 pb-12">
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-            <Briefcase className="w-6 h-6 text-emerald-600" />
-            <span>Operational Jobs & Service Assignments</span>
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Manage daily dispatches, technician assignments, field completions, and postponements.
-          </p>
+      {/* PREMIUM COMMAND HEADER & INTERACTIVE KPI FILTER CARDS */}
+      <div className="bg-gradient-to-br from-[#2E1065] via-[#4C1D95] to-[#1E1B4B] rounded-3xl p-5 sm:p-6 text-white shadow-xl border border-purple-700/50 relative overflow-hidden">
+        <div className="absolute -top-24 -right-24 w-72 h-72 bg-orange-500/15 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md border border-white/20 text-[10px] font-black uppercase tracking-widest text-amber-300">
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>Dispatch &amp; Field Operations Control Center</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2.5">
+              <Briefcase className="w-7 h-7 text-[#FF8A00]" />
+              <span>Operational Jobs &amp; Service Assignments</span>
+            </h1>
+            <p className="text-xs sm:text-sm text-purple-200 font-medium max-w-2xl">
+              Filter, assign, dispatch, and track daily pest control jobs by date, status, technician, treatment, vehicle, or equipment.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={loadJobs}
+              className="p-2.5 rounded-2xl bg-white/15 hover:bg-white/25 text-white border border-white/20 transition cursor-pointer"
+              title="Refresh Jobs List"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-amber-300' : ''}`} />
+            </button>
+
+            {!isMobileView && !isTechnicianMode && (
+              <>
+                {onOpenAddCustomer && (
+                  <button
+                    type="button"
+                    onClick={onOpenAddCustomer}
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-white/15 hover:bg-white/25 text-white text-xs font-black rounded-2xl border border-white/25 transition cursor-pointer"
+                  >
+                    <UserPlus className="w-4 h-4 text-amber-300" />
+                    <span>+ Add Customer</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(true)}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white text-xs font-black rounded-2xl shadow-lg shadow-orange-950/40 transition cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Create Manual Job</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
-        {!isMobileView && !isTechnicianMode && (
+        {/* 5 Interactive KPI Filter Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mt-5 relative z-10">
+          <button
+            type="button"
+            onClick={() => { setStatusFilter(''); setAssignmentFilter(''); }}
+            className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+              statusFilter === '' && assignmentFilter === ''
+                ? 'bg-white text-[#3B0764] border-white shadow-lg scale-[1.01]'
+                : 'bg-white/10 hover:bg-white/15 text-white border-white/15'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className={`text-[10px] font-black uppercase tracking-wider ${statusFilter === '' && assignmentFilter === '' ? 'text-[#5B21B6]' : 'text-purple-200'}`}>
+                Total Jobs
+              </span>
+              <Briefcase className={`w-4 h-4 ${statusFilter === '' && assignmentFilter === '' ? 'text-[#F97316]' : 'text-amber-300'}`} />
+            </div>
+            <div className="text-2xl font-black mt-1">{kpiStats.all}</div>
+            <div className={`text-[10px] font-semibold mt-0.5 ${statusFilter === '' && assignmentFilter === '' ? 'text-slate-600' : 'text-white/75'}`}>
+              {dateFilter ? `On ${dateFilter}` : 'All loaded schedule'}
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => { setStatusFilter(statusFilter === 'IN_PROGRESS' ? '' : 'IN_PROGRESS'); setAssignmentFilter(''); }}
+            className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+              statusFilter === 'IN_PROGRESS'
+                ? 'bg-gradient-to-r from-[#F97316] to-[#EA580C] text-white border-amber-300 shadow-lg scale-[1.01]'
+                : 'bg-white/10 hover:bg-white/15 text-white border-white/15'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-200 flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-amber-300 animate-ping" />
+                <span>In Progress</span>
+              </span>
+              <PlayCircle className="w-4 h-4 text-amber-300" />
+            </div>
+            <div className="text-2xl font-black mt-1">{kpiStats.inProgress}</div>
+            <div className="text-[10px] text-white/80 font-semibold mt-0.5">Active in field now</div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => { setStatusFilter(statusFilter === 'PENDING' ? '' : 'PENDING'); setAssignmentFilter(''); }}
+            className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+              statusFilter === 'PENDING'
+                ? 'bg-white text-[#3B0764] border-white shadow-lg scale-[1.01]'
+                : 'bg-white/10 hover:bg-white/15 text-white border-white/15'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className={`text-[10px] font-black uppercase tracking-wider ${statusFilter === 'PENDING' ? 'text-[#5B21B6]' : 'text-purple-200'}`}>
+                Scheduled / To Do
+              </span>
+              <Clock className={`w-4 h-4 ${statusFilter === 'PENDING' ? 'text-[#5B21B6]' : 'text-purple-300'}`} />
+            </div>
+            <div className="text-2xl font-black mt-1">{kpiStats.toDo}</div>
+            <div className={`text-[10px] font-semibold mt-0.5 ${statusFilter === 'PENDING' ? 'text-slate-600' : 'text-white/75'}`}>
+              Ready for execution
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => { setStatusFilter(statusFilter === 'COMPLETED' ? '' : 'COMPLETED'); setAssignmentFilter(''); }}
+            className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+              statusFilter === 'COMPLETED'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-300 shadow-lg scale-[1.01]'
+                : 'bg-white/10 hover:bg-white/15 text-white border-white/15'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-200">
+                Completed
+              </span>
+              <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+            </div>
+            <div className="text-2xl font-black mt-1">{kpiStats.completed}</div>
+            <div className="text-[10px] text-white/80 font-semibold mt-0.5">Finished &amp; signed off</div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setAssignmentFilter(assignmentFilter === 'UNASSIGNED' ? '' : 'UNASSIGNED');
+              setStatusFilter('');
+            }}
+            className={`p-3.5 rounded-2xl border text-left transition cursor-pointer col-span-2 sm:col-span-1 ${
+              assignmentFilter === 'UNASSIGNED'
+                ? 'bg-gradient-to-r from-rose-600 to-orange-600 text-white border-rose-300 shadow-lg scale-[1.01]'
+                : 'bg-white/10 hover:bg-white/15 text-white border-white/15'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase tracking-wider text-rose-200">
+                Unassigned Jobs
+              </span>
+              <AlertTriangle className="w-4 h-4 text-amber-300" />
+            </div>
+            <div className="text-2xl font-black mt-1">{kpiStats.unassigned}</div>
+            <div className="text-[10px] text-white/80 font-semibold mt-0.5">Needs technician dispatch</div>
+          </button>
+        </div>
+      </div>
+
+      {/* SMART MULTI-DIMENSIONAL FILTER & CONTROL PANEL */}
+      <div className="bg-white rounded-3xl border-2 border-purple-100 shadow-sm p-4 sm:p-5 space-y-4">
+
+        {/* ROW 1: Quick Date Horizon Tabs + Date Pickers + View Switcher */}
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 pb-3.5 border-b border-slate-100">
           <div className="flex flex-wrap items-center gap-2">
-            {onOpenAddCustomer && (
+            <button
+              type="button"
+              onClick={() => {
+                setDateFilter(colomboToday);
+                setDateFromFilter('');
+                setDateToFilter('');
+              }}
+              className={`px-4 py-2.5 rounded-xl font-black text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                dateFilter === colomboToday
+                  ? 'bg-gradient-to-r from-[#F97316] to-[#EA580C] text-white shadow-sm'
+                  : 'bg-orange-50/70 text-orange-800 hover:bg-orange-100 border border-orange-200/80'
+              }`}
+            >
+              <CalendarIcon className="w-3.5 h-3.5 shrink-0" />
+              <span>Today Jobs ({colomboToday})</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                dateFilter === colomboToday ? 'bg-white/25 text-white' : 'bg-orange-200/80 text-orange-950'
+              }`}>
+                {kpiStats.todayJobs}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setDateFilter(colomboTomorrow);
+                setDateFromFilter('');
+                setDateToFilter('');
+              }}
+              className={`px-4 py-2.5 rounded-xl font-black text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                dateFilter === colomboTomorrow
+                  ? 'bg-gradient-to-r from-[#5B21B6] to-[#6D28D9] text-white shadow-sm'
+                  : 'bg-purple-50/80 text-[#4C1D95] hover:bg-purple-100 border border-purple-200/80'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5 shrink-0" />
+              <span>Tomorrow Jobs ({colomboTomorrow})</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                dateFilter === colomboTomorrow ? 'bg-white/25 text-white' : 'bg-purple-200/80 text-purple-950'
+              }`}>
+                {kpiStats.tomorrowJobs}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setDateFilter('');
+                setDateFromFilter('');
+                setDateToFilter('');
+              }}
+              className={`px-4 py-2.5 rounded-xl font-black text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                dateFilter === '' && !dateFromFilter && !dateToFilter
+                  ? 'bg-[#3B0764] text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              <Briefcase className="w-3.5 h-3.5 shrink-0" />
+              <span>All Dates ({kpiStats.allDatesJobs})</span>
+            </button>
+
+            {/* Exact Date Picker */}
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
+              <span className="text-[10px] font-black uppercase text-slate-400">Exact Date:</span>
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={(e) => {
+                  setDateFilter(e.target.value);
+                  setDateFromFilter('');
+                  setDateToFilter('');
+                }}
+                className="bg-transparent font-bold text-slate-800 focus:outline-hidden cursor-pointer text-xs"
+              />
+              {dateFilter && (
+                <button
+                  type="button"
+                  onClick={() => setDateFilter('')}
+                  className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Date Range Picker (From - To) */}
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
+              <span className="text-[10px] font-black uppercase text-slate-400">Range:</span>
+              <input
+                type="date"
+                value={dateFromFilter}
+                onChange={(e) => {
+                  setDateFromFilter(e.target.value);
+                  setDateFilter('');
+                }}
+                className="bg-transparent font-bold text-slate-800 focus:outline-hidden cursor-pointer text-xs"
+                title="From Date"
+              />
+              <span className="text-slate-400 font-bold">→</span>
+              <input
+                type="date"
+                value={dateToFilter}
+                onChange={(e) => {
+                  setDateToFilter(e.target.value);
+                  setDateFilter('');
+                }}
+                className="bg-transparent font-bold text-slate-800 focus:outline-hidden cursor-pointer text-xs"
+                title="To Date"
+              />
+              {(dateFromFilter || dateToFilter) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDateFromFilter('');
+                    setDateToFilter('');
+                  }}
+                  className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Right: Desktop View Mode Toggle (Table vs Cards) & Clear Filters */}
+          <div className="flex items-center gap-2">
+            {hasActiveFilters && (
               <button
                 type="button"
-                onClick={onOpenAddCustomer}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 text-xs sm:text-sm font-bold rounded-xl border border-slate-200 hover:border-emerald-300 transition shadow-2xs"
+                onClick={handleClearAllFilters}
+                className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-black text-xs flex items-center gap-1.5 transition cursor-pointer"
               >
-                <UserPlus className="w-4 h-4 text-emerald-600" />
-                <span>+ Add Customer</span>
+                <X className="w-3.5 h-3.5" />
+                <span>Reset All Filters</span>
               </button>
             )}
 
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-xs transition"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Create Manual Job</span>
-            </button>
+            {!isMobileView && (
+              <div className="hidden lg:flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('table')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition cursor-pointer ${
+                    viewMode === 'table'
+                      ? 'bg-white text-[#4C1D95] shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span>Table</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('cards')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition cursor-pointer ${
+                    viewMode === 'cards'
+                      ? 'bg-white text-[#4C1D95] shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Cards</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ROW 2: Interactive Technician Filter Pills (Admin / Manager Mode) */}
+        {!isTechnicianMode && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <HardHat className="w-3.5 h-3.5 text-[#F97316]" />
+                <span>Quick Filter by Technician / Assignment</span>
+              </span>
+              {technicianFilter && (
+                <button
+                  type="button"
+                  onClick={() => setTechnicianFilter('')}
+                  className="text-[11px] font-bold text-[#6D28D9] hover:underline cursor-pointer"
+                >
+                  Show All Technicians
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setTechnicianFilter('');
+                  setAssignmentFilter('');
+                }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black shrink-0 transition cursor-pointer border ${
+                  !technicianFilter && !assignmentFilter
+                    ? 'bg-[#4C1D95] text-white border-[#4C1D95] shadow-xs'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-purple-50'
+                }`}
+              >
+                👷 All Technicians ({kpiStats.scopeTotal})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTechnicianFilter('');
+                  setAssignmentFilter(assignmentFilter === 'UNASSIGNED' ? '' : 'UNASSIGNED');
+                }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black shrink-0 transition cursor-pointer border ${
+                  assignmentFilter === 'UNASSIGNED'
+                    ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                    : 'bg-rose-50/70 text-rose-800 border-rose-200 hover:bg-rose-100'
+                }`}
+              >
+                ⚠️ Unassigned Only ({kpiStats.scopeUnassigned})
+              </button>
+
+              {staff.filter(s => s.role === 'TECHNICIAN' && s.is_active !== 0).map(tech => {
+                const count = kpiStats.byTechnician[tech.id] !== undefined
+                  ? kpiStats.byTechnician[tech.id]
+                  : rawJobs.filter(j => String(j.technician_id || j.assigned_technician_id || '') === String(tech.id)).length;
+                const isSelected = String(technicianFilter) === String(tech.id);
+                return (
+                  <button
+                    key={tech.id}
+                    type="button"
+                    onClick={() => {
+                      setAssignmentFilter('');
+                      setTechnicianFilter(isSelected ? '' : String(tech.id));
+                    }}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-black shrink-0 transition cursor-pointer border flex items-center gap-1.5 ${
+                      isSelected
+                        ? 'bg-gradient-to-r from-[#F97316] to-[#EA580C] text-white border-orange-500 shadow-xs'
+                        : 'bg-white text-slate-800 border-slate-200 hover:border-purple-300 hover:bg-purple-50/50'
+                    }`}
+                  >
+                    <span>{tech.full_name}</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                      isSelected ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
-      </div>
 
-      {/* Quick Schedule Tab Bar: Today Job List | Tomorrow Job List | All Jobs */}
-      <div className="grid grid-cols-3 p-1.5 bg-white rounded-2xl border border-purple-100 shadow-2xs gap-1.5 sm:gap-2">
-        <button
-          type="button"
-          onClick={() => setDateFilter(colomboToday)}
-          className={`py-2.5 px-2 sm:px-3 rounded-xl font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
-            dateFilter === colomboToday
-              ? 'bg-gradient-to-r from-[#F97316] to-[#FF8A00] text-white shadow-sm'
-              : 'bg-purple-50/60 text-slate-700 hover:bg-orange-50 hover:text-orange-700'
-          }`}
-        >
-          <CalendarIcon className="w-3.5 h-3.5 shrink-0" />
-          <span className="truncate">Today Job List</span>
-        </button>
+        {/* ROW 3: Interactive Status Filter Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+          {[
+            { id: '', label: `All Statuses (${kpiStats.all})` },
+            { id: 'IN_PROGRESS', label: `🔴 In Progress (${kpiStats.inProgress})` },
+            { id: 'PENDING', label: `📋 Active / To Do (${kpiStats.toDo})` },
+            { id: 'ASSIGNED', label: `👷 Assigned (${kpiStats.assigned})` },
+            { id: 'TO_BE_DONE', label: `⏳ To Be Done (${kpiStats.toBeDone})` },
+            { id: 'CONFIRMED', label: `✔️ Confirmed (${kpiStats.confirmed})` },
+            { id: 'COMPLETED', label: `✅ Completed (${kpiStats.completed})` },
+            { id: 'POSTPONED', label: `⏸️ Postponed (${kpiStats.postponed})` },
+            { id: 'OVERDUE', label: `⚠️ Overdue (${kpiStats.overdue})` },
+            { id: 'UNCONFIRMED', label: `❓ Unconfirmed (${kpiStats.unconfirmed})` },
+            { id: 'CANCELLED', label: `✕ Cancelled (${kpiStats.cancelled})` }
+          ].map(st => (
+            <button
+              key={st.id || 'all'}
+              type="button"
+              onClick={() => setStatusFilter(statusFilter === st.id ? '' : st.id)}
+              className={`px-3 py-1.5 rounded-xl text-[11px] font-black shrink-0 transition cursor-pointer ${
+                statusFilter === st.id
+                  ? 'bg-[#3B0764] text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#4C1D95]'
+              }`}
+            >
+              {st.label}
+            </button>
+          ))}
+        </div>
 
-        <button
-          type="button"
-          onClick={() => setDateFilter(colomboTomorrow)}
-          className={`py-2.5 px-2 sm:px-3 rounded-xl font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
-            dateFilter === colomboTomorrow
-              ? 'bg-gradient-to-r from-[#5B21B6] to-[#6D28D9] text-white shadow-sm'
-              : 'bg-purple-50/60 text-slate-700 hover:bg-purple-100 hover:text-purple-800'
-          }`}
-        >
-          <Clock className="w-3.5 h-3.5 shrink-0" />
-          <span className="truncate">Tomorrow Job List</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setDateFilter('')}
-          className={`py-2.5 px-2 sm:px-3 rounded-xl font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
-            dateFilter === ''
-              ? 'bg-[#3B0764] text-white shadow-sm'
-              : 'bg-purple-50/60 text-slate-700 hover:bg-slate-100'
-          }`}
-        >
-          <Briefcase className="w-3.5 h-3.5 shrink-0" />
-          <span className="truncate">All Jobs</span>
-        </button>
-      </div>
-
-      {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
-
-          {/* Search */}
-          <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        {/* ROW 4: Multi-Column Advanced Filters (Search, Status, Technician, Treatment, Vehicle, Machine) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5 text-xs pt-1">
+          {/* 1. Instant Search */}
+          <div className="relative sm:col-span-2">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search jobs..."
-              className="w-full bg-slate-50 pl-9 pr-3 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
+              placeholder="Search job code, customer, phone, location, tech, vehicle, machine..."
+              className="w-full bg-slate-50 pl-10 pr-8 py-2.5 rounded-xl border border-slate-200 font-semibold text-slate-900 focus:bg-white focus:outline-hidden focus:border-[#6D28D9]"
             />
-          </div>
-
-          {/* Date Filter */}
-          <div className="relative flex items-center">
-            <CalendarIcon className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
-            <input
-              type="date"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="w-full bg-slate-50 pl-9 pr-3 py-2 rounded-xl border border-slate-200 focus:outline-hidden"
-            />
-            {dateFilter && (
-              <button onClick={() => setDateFilter('')} className="absolute right-2 text-slate-400 hover:text-slate-600">
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
 
-          {/* Status Filter */}
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 focus:outline-hidden font-semibold"
-          >
-            <option value="">All Statuses</option>
-            <option value="PENDING">PENDING (Action Required)</option>
-            <option value="OVERDUE">OVERDUE (Needs Attention)</option>
-            <option value="TO_BE_DONE">TO BE DONE</option>
-            <option value="ASSIGNED">ASSIGNED</option>
-            <option value="IN_PROGRESS">IN PROGRESS</option>
-            <option value="COMPLETED">COMPLETED</option>
-            <option value="POSTPONED">POSTPONED</option>
-            <option value="UNCONFIRMED">UNCONFIRMED</option>
-            <option value="CANCELLED">CANCELLED</option>
-          </select>
-
-          {/* Technician Filter */}
+          {/* 2. Technician Dropdown */}
           {!isTechnicianMode ? (
             <select
               value={technicianFilter}
-              onChange={(e) => setTechnicianFilter(e.target.value)}
-              className="w-full bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 focus:outline-hidden"
+              onChange={(e) => {
+                setTechnicianFilter(e.target.value);
+                if (e.target.value) setAssignmentFilter('');
+              }}
+              className="w-full bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-800 focus:outline-hidden focus:border-[#6D28D9] cursor-pointer"
             >
-              <option value="">All Technicians</option>
+              <option value="">👷 All Technicians</option>
               {staff.filter(s => s.role === 'TECHNICIAN').map(s => (
                 <option key={s.id} value={s.id}>{s.full_name}</option>
               ))}
             </select>
           ) : (
-            <div className="w-full bg-purple-50/70 px-3 py-2 rounded-xl border border-purple-200/80 text-xs font-bold text-[#4C1D95] flex items-center gap-1.5 truncate shadow-2xs">
+            <div className="w-full bg-purple-50/70 px-3 py-2.5 rounded-xl border border-purple-200/80 text-xs font-bold text-[#4C1D95] flex items-center gap-1.5 truncate">
               <User className="w-3.5 h-3.5 shrink-0 text-[#6D28D9]" />
               <span className="truncate">My Assigned Jobs</span>
             </div>
           )}
 
-          {/* Treatment Filter */}
+          {/* 3. Treatment Filter */}
           <select
             value={treatmentFilter}
             onChange={(e) => setTreatmentFilter(e.target.value)}
-            className="w-full bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 focus:outline-hidden"
+            className="w-full bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-800 focus:outline-hidden focus:border-[#6D28D9] cursor-pointer"
           >
-            <option value="">All Treatments</option>
+            <option value="">🧪 All Treatments</option>
             {treatments.map(t => (
-              <option key={t.id} value={t.id}>{t.code}</option>
+              <option key={t.id} value={t.id}>{t.code} — {t.name}</option>
             ))}
           </select>
 
+          {/* 4. Vehicle Filter */}
+          <select
+            value={vehicleFilter}
+            onChange={(e) => setVehicleFilter(e.target.value)}
+            className="w-full bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-800 focus:outline-hidden focus:border-[#6D28D9] cursor-pointer"
+          >
+            <option value="">🚚 All Vehicles</option>
+            {vehicleFilterOptions.map(v => (
+              <option key={v} value={v}>🚗 {v}</option>
+            ))}
+          </select>
+
+          {/* 5. Machine Filter */}
+          <select
+            value={machineFilter}
+            onChange={(e) => setMachineFilter(e.target.value)}
+            className="w-full bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-800 focus:outline-hidden focus:border-[#6D28D9] cursor-pointer"
+          >
+            <option value="">⚙️ All Machines</option>
+            {machineFilterOptions.map(m => (
+              <option key={m} value={m}>⚙️ {m}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Active Filter Summary Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-black text-slate-800">
+              Showing <span className="text-[#6D28D9]">{jobs.length}</span> of {total || kpiStats.all} Matching Job(s)
+            </span>
+            {dateFilter && (
+              <span className="px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-800 font-bold text-[11px] flex items-center gap-1">
+                📅 Date: {dateFilter}
+                <X className="w-3 h-3 cursor-pointer" onClick={() => setDateFilter('')} />
+              </span>
+            )}
+            {(dateFromFilter || dateToFilter) && (
+              <span className="px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold text-[11px] flex items-center gap-1">
+                📅 Range: {dateFromFilter || '...'} → {dateToFilter || '...'}
+                <X className="w-3 h-3 cursor-pointer" onClick={() => { setDateFromFilter(''); setDateToFilter(''); }} />
+              </span>
+            )}
+            {statusFilter && (
+              <span className="px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold text-[11px] flex items-center gap-1">
+                📌 Status: {statusFilter}
+                <X className="w-3 h-3 cursor-pointer" onClick={() => setStatusFilter('')} />
+              </span>
+            )}
+            {assignmentFilter && (
+              <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-bold text-[11px] flex items-center gap-1">
+                👷 {assignmentFilter}
+                <X className="w-3 h-3 cursor-pointer" onClick={() => setAssignmentFilter('')} />
+              </span>
+            )}
+            {vehicleFilter && (
+              <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 font-bold text-[11px] flex items-center gap-1">
+                🚗 {vehicleFilter}
+                <X className="w-3 h-3 cursor-pointer" onClick={() => setVehicleFilter('')} />
+              </span>
+            )}
+            {machineFilter && (
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[11px] flex items-center gap-1">
+                ⚙️ {machineFilter}
+                <X className="w-3 h-3 cursor-pointer" onClick={() => setMachineFilter('')} />
+              </span>
+            )}
+          </div>
+
+          {!isTechnicianMode && jobs.length > 0 && (
+            <div className="text-[11px] text-slate-500 font-medium">
+              Tip: Check multiple jobs to bulk-assign a technician, or click any row for full details &amp; PDF export.
+            </div>
+          )}
         </div>
 
         {/* Bulk Assign Action Bar (appears when 1 or more jobs are checked - Admin only) */}
         {!isTechnicianMode && selectedJobIds.length > 0 && (
-          <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 flex flex-wrap items-center justify-between gap-3 text-xs animate-in fade-in">
-            <span className="font-bold text-emerald-900">{selectedJobIds.length} job(s) selected</span>
+          <div className="p-3.5 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl border-2 border-emerald-300 flex flex-wrap items-center justify-between gap-3 text-xs animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-black">
+                {selectedJobIds.length} Selected
+              </span>
+              <span className="font-bold text-emerald-950">Bulk Assign Selected Jobs to Technician:</span>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <select
                 value={bulkTechId}
                 onChange={(e) => setBulkTechId(e.target.value)}
-                className="bg-white px-3 py-1.5 rounded-lg border border-emerald-300 font-medium text-slate-800"
+                className="bg-white px-3 py-2 rounded-xl border border-emerald-300 font-bold text-slate-800"
               >
                 <option value="">Select Technician to Assign...</option>
                 {staff.filter(s => s.role === 'TECHNICIAN').map(s => (
@@ -688,11 +1302,10 @@ export default function JobsView({
                 ))}
               </select>
 
-              {/* Click button to Enable / Disable sending SMS job link */}
               <button
                 type="button"
                 onClick={() => setBulkSendSms(!bulkSendSms)}
-                className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 border transition cursor-pointer ${
+                className={`px-3 py-2 rounded-xl font-bold flex items-center gap-1.5 border transition cursor-pointer ${
                   bulkSendSms
                     ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
                     : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
@@ -706,65 +1319,102 @@ export default function JobsView({
               <button
                 onClick={handleBulkAssign}
                 disabled={!bulkTechId}
-                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-2xs disabled:opacity-50"
+                className="px-4 py-2 bg-[#4C1D95] hover:bg-[#3B0764] text-white font-black rounded-xl shadow-xs disabled:opacity-50 cursor-pointer"
               >
-                Assign Jobs
+                Assign {selectedJobIds.length} Job(s)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedJobIds([])}
+                className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-600 font-bold rounded-xl border border-slate-200 cursor-pointer"
+              >
+                Clear
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Responsive Mobile & iPad Job Cards (for Android, iPhone & iPad) */}
-      <div className={`${isMobileView ? 'block' : 'lg:hidden'}`}>
+      {/* JOB CARDS GRID VIEW (Always on Mobile/Tablet, or when 'cards' viewMode is chosen on Desktop) */}
+      <div className={`${isMobileView || viewMode === 'cards' ? 'block' : 'lg:hidden'}`}>
         {jobs.length === 0 ? (
-          <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center">
-            <Briefcase className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-            <p className="text-sm font-black text-slate-700">No Jobs Found</p>
-            <p className="text-xs text-slate-400 mt-0.5">Try switching tabs or adjusting your filters.</p>
+          <div className="bg-white p-10 rounded-3xl border border-slate-200 text-center space-y-2">
+            <Briefcase className="w-12 h-12 text-slate-300 mx-auto" />
+            <p className="text-base font-black text-slate-800">No Matching Jobs Found</p>
+            <p className="text-xs text-slate-500">Try resetting or adjusting your active filters above.</p>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={handleClearAllFilters}
+                className="mt-2 px-4 py-2 rounded-xl bg-[#4C1D95] text-white font-black text-xs cursor-pointer"
+              >
+                Reset All Filters
+              </button>
+            )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {jobs.map(job => {
               const isLockedTomorrow = isTechnicianMode && isJobScheduledAfterToday(job);
+              const vehicleStr = job.vehicle_no || job.vehicle_number;
+              const machineStr = job.machine_name || job.machine_type;
+
               return (
                 <div
                   key={job.id}
                   onClick={() => isLockedTomorrow ? setTomorrowNoticeJob(job) : loadJobDetails(job.id)}
-                  className={`bg-white p-4 rounded-2xl border shadow-2xs space-y-3 active:scale-[0.99] transition cursor-pointer flex flex-col justify-between ${
-                    isLockedTomorrow ? 'border-purple-200/90 bg-purple-50/20' : 'border-slate-200'
+                  className={`bg-white p-4 sm:p-5 rounded-3xl border-2 shadow-xs hover:shadow-md space-y-3.5 transition cursor-pointer flex flex-col justify-between relative overflow-hidden ${
+                    job.status === 'IN_PROGRESS'
+                      ? 'border-amber-400 bg-amber-50/10'
+                      : job.status === 'COMPLETED'
+                        ? 'border-emerald-200'
+                        : isLockedTomorrow
+                          ? 'border-purple-200/90 bg-purple-50/20'
+                          : 'border-purple-100'
                   }`}
                 >
-                  <div className="space-y-2.5">
+                  <div
+                    className="absolute top-0 left-0 bottom-0 w-1.5"
+                    style={{
+                      backgroundColor: job.status === 'IN_PROGRESS'
+                        ? '#F97316'
+                        : job.status === 'COMPLETED'
+                          ? '#10B981'
+                          : (job.treatment_color || '#6D28D9')
+                    }}
+                  />
+
+                  <div className="space-y-3 pl-1.5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-[10px] font-mono font-black bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
+                          <span className="text-[10px] font-mono font-black bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md">
                             {job.job_code}
                           </span>
                           <span
                             style={{ backgroundColor: `${job.treatment_color || '#6D28D9'}20`, color: job.treatment_color || '#6D28D9' }}
-                            className="px-2 py-0.5 rounded text-[10px] font-black"
+                            className="px-2 py-0.5 rounded-md text-[10px] font-black"
                           >
-                            {job.treatment_code}
+                            🧪 {job.treatment_code}
                           </span>
                           {isLockedTomorrow && (
-                            <span className="px-2 py-0.5 bg-[#5B21B6] text-white rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                            <span className="px-2 py-0.5 bg-[#5B21B6] text-white rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
                               <Lock className="w-2.5 h-2.5" /> Tomorrow Only
                             </span>
                           )}
                         </div>
-                        <h3 className="text-sm font-black text-slate-900 mt-1.5 leading-snug">{job.customer_name}</h3>
+                        <h3 className="text-base font-black text-slate-900 mt-1.5 leading-snug truncate">{job.customer_name}</h3>
                         <div className="text-[11px] font-bold text-slate-500 mt-0.5 flex items-center gap-1.5">
-                          <CalendarIcon className="w-3 h-3 text-[#6D28D9]" />
+                          <CalendarIcon className="w-3.5 h-3.5 text-[#6D28D9]" />
                           <span>{getJobEffectiveDate(job)}</span>
                           <span>&bull;</span>
-                          <span>{job.scheduled_time || '09:00'}</span>
+                          <span>{job.scheduled_time || '09:00'} ({job.duration_minutes || 60}m)</span>
                         </div>
                       </div>
                       <span className={`px-2.5 py-1 rounded-full text-[10px] font-black shrink-0 ${
-                        job.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' :
-                        job.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-800' :
+                        job.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                        job.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse' :
                         job.status === 'POSTPONED' ? 'bg-purple-100 text-purple-800' :
                         'bg-slate-100 text-slate-700'
                       }`}>
@@ -776,12 +1426,58 @@ export default function JobsView({
                       <MapPin className="w-3.5 h-3.5 text-[#F97316] shrink-0" />
                       <span className="truncate font-medium">{job.location_name || job.location_address || 'Main Location'}</span>
                     </div>
+
+                    {/* Technician, Crew, Vehicle & Machine Mini Grid */}
+                    <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                      <div className="p-2 rounded-xl bg-purple-50/60 border border-purple-100">
+                        <div className="text-[9px] font-black uppercase text-purple-600">👷 Technician</div>
+                        <div className="font-black text-slate-900 truncate mt-0.5">{job.technician_name || 'Unassigned'}</div>
+                      </div>
+                      <div className="p-2 rounded-xl bg-slate-50 border border-slate-200/70">
+                        <div className="text-[9px] font-black uppercase text-slate-500">👥 Crew / People</div>
+                        <div className="font-black text-slate-900 truncate mt-0.5">{job.crew_count || 1} People</div>
+                      </div>
+                      <div className="p-2 rounded-xl bg-slate-50 border border-slate-200/70">
+                        <div className="text-[9px] font-black uppercase text-slate-500">🚚 Vehicle No</div>
+                        <div className="font-black text-slate-900 truncate mt-0.5">{vehicleStr || 'Not Assigned'}</div>
+                      </div>
+                      <div className="p-2 rounded-xl bg-slate-50 border border-slate-200/70">
+                        <div className="text-[9px] font-black uppercase text-slate-500">⚙️ Machine</div>
+                        <div className="font-black text-slate-900 truncate mt-0.5">{machineStr || 'Standard'}</div>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
-                    <div className="text-[11px] text-slate-500 font-semibold flex items-center gap-1">
-                      <User className="w-3.5 h-3.5 text-[#6D28D9]" />
-                      <span className="truncate">{job.technician_name || 'Assigned'}</span>
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 pl-1.5" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => downloadJobPdfReport(job)}
+                        className="px-2.5 py-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-[#4C1D95] border border-purple-200 font-black text-[10px] flex items-center gap-1 cursor-pointer"
+                        title="Download Job PDF"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>PDF</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => shareJobOnWhatsApp(job, false)}
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-black text-[10px] flex items-center gap-1 cursor-pointer"
+                        title="Share on WhatsApp"
+                      >
+                        <Share2 className="w-3 h-3" />
+                        <span>WA</span>
+                      </button>
+                      {!isTechnicianMode && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingJob(job)}
+                          className="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-black text-[10px] flex items-center gap-1 cursor-pointer"
+                        >
+                          <Edit className="w-3 h-3" />
+                          <span>Edit</span>
+                        </button>
+                      )}
                     </div>
 
                     {isLockedTomorrow ? (
@@ -825,189 +1521,222 @@ export default function JobsView({
         )}
       </div>
 
-      {/* Desktop Jobs Table */}
-      <div className={`${isMobileView ? 'hidden' : 'hidden lg:block'} bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden`}>
-        <div className="divide-y divide-slate-100 overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
-              <tr>
-                {!isTechnicianMode && (
-                  <th className="p-4 w-8">
-                    <input
-                      type="checkbox"
-                      checked={selectedJobIds.length === jobs.length && jobs.length > 0}
-                      onChange={(e) => {
-                        if (e.target.checked) setSelectedJobIds(jobs.map(j => j.id));
-                        else setSelectedJobIds([]);
-                      }}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                  </th>
-                )}
-                <th className="px-3 py-3">Job Code & Date</th>
-                <th className="px-3 py-3">Customer</th>
-                <th className="px-3 py-3">Location</th>
-                <th className="px-3 py-3">Treatment</th>
-                <th className="px-3 py-3">Technician</th>
-                <th className="px-3 py-3">Status</th>
-                <th className="px-4 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {jobs.map(job => {
-                const isLockedTomorrow = isTechnicianMode && isJobScheduledAfterToday(job);
-                return (
-                <tr
-                  key={job.id}
-                  onClick={() => isLockedTomorrow ? setTomorrowNoticeJob(job) : loadJobDetails(job.id)}
-                  className="hover:bg-slate-50/80 cursor-pointer transition"
-                >
+      {/* DESKTOP JOBS TABLE VIEW */}
+      <div className={`${isMobileView || viewMode === 'cards' ? 'hidden' : 'hidden lg:block'} bg-white rounded-3xl border-2 border-purple-100 shadow-sm overflow-hidden`}>
+        {jobs.length === 0 ? (
+          <div className="p-12 text-center space-y-2">
+            <Briefcase className="w-12 h-12 text-slate-300 mx-auto" />
+            <div className="text-base font-black text-slate-800">No Jobs Match Your Active Filters</div>
+            <p className="text-xs text-slate-500">Try clearing or changing the filters above to view more jobs.</p>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={handleClearAllFilters}
+                className="mt-2 px-4 py-2 rounded-xl bg-[#4C1D95] hover:bg-[#3B0764] text-white font-black text-xs cursor-pointer"
+              >
+                Reset All Filters
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-gradient-to-r from-purple-50/90 via-slate-50 to-orange-50/60 text-[#3B0764] font-black uppercase text-[10px] tracking-wider border-b border-purple-100">
+                <tr>
                   {!isTechnicianMode && (
-                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                    <th className="p-4 w-8">
                       <input
                         type="checkbox"
-                        checked={selectedJobIds.includes(job.id)}
-                        onChange={() => toggleSelectJob(job.id)}
-                        className="rounded text-emerald-600 focus:ring-emerald-500"
+                        checked={selectedJobIds.length === jobs.length && jobs.length > 0}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedJobIds(jobs.map(j => j.id));
+                          else setSelectedJobIds([]);
+                        }}
+                        className="rounded text-[#6D28D9] focus:ring-[#6D28D9] cursor-pointer"
                       />
-                    </td>
+                    </th>
                   )}
-
-                  <td className="px-3 py-3.5 whitespace-nowrap">
-                    <div className="font-mono font-bold text-slate-900">{job.job_code}</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1.5">
-                      <span>{job.scheduled_date}</span>
-                      <span>&bull;</span>
-                      <span>{job.scheduled_time || '09:00'}</span>
-                    </div>
-                  </td>
-
-                  <td className="px-3 py-3.5">
-                    <div className="font-bold text-slate-900 text-sm">{job.customer_name}</div>
-                    {job.customer_phone && (
-                      <div className="text-[11px] text-slate-500">{job.customer_phone}</div>
-                    )}
-                  </td>
-
-                  <td className="px-3 py-3.5 text-slate-600">
-                    <div className="flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span className="line-clamp-1">{job.location_name || job.location_address || 'Main'}</span>
-                    </div>
-                  </td>
-
-                  <td className="px-3 py-3.5 whitespace-nowrap">
-                    <span
-                      style={{ backgroundColor: `${job.treatment_color || '#10B981'}20`, color: job.treatment_color || '#10B981' }}
-                      className="px-2.5 py-0.5 rounded-lg text-xs font-bold inline-block"
-                    >
-                      {job.treatment_code}
-                    </span>
-                  </td>
-
-                  <td className="px-3 py-3.5 whitespace-nowrap">
-                    {job.technician_name ? (
-                      <div>
-                        <div className="flex items-center gap-1.5 font-bold text-slate-900">
-                          <User className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>{job.technician_name}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-500 font-semibold mt-0.5 flex items-center gap-1">
-                          <span className="bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded font-bold inline-flex items-center gap-0.5">
-                            <HardHat className="w-2.5 h-2.5 text-amber-700" />
-                            {job.crew_count > 1 ? `${job.crew_count} workers` : 'Solo (1)'}
-                          </span>
-                          {job.workers_info && (
-                            <span className="text-slate-400 font-normal">
-                              +helpers
-                            </span>
-                          )}
-                        </div>
-                        {((job.vehicle_no || job.vehicle_number) || (job.machine_name || job.machine_type)) && (
-                          <div className="flex flex-wrap items-center gap-1 mt-1">
-                            {(job.vehicle_no || job.vehicle_number) && (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-blue-50 text-blue-800 text-[9px] font-bold border border-blue-200">
-                                🚗 {job.vehicle_no || job.vehicle_number}
-                              </span>
-                            )}
-                            {(job.machine_name || job.machine_type) && (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-purple-50 text-purple-800 text-[9px] font-bold border border-purple-200">
-                                ⚙️ {job.machine_name || job.machine_type}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-amber-500 font-semibold italic text-[11px]">Unassigned</span>
-                    )}
-                  </td>
-
-                  <td className="px-3 py-3.5 whitespace-nowrap">
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                      job.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' :
-                      job.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-800 animate-pulse' :
-                      job.status === 'POSTPONED' ? 'bg-indigo-100 text-indigo-800' :
-                      job.status === 'CANCELLED' ? 'bg-rose-100 text-rose-800' :
-                      'bg-slate-100 text-slate-700'
-                    }`}>
-                      {job.status}
-                    </span>
-                  </td>
-
-                  <td className="px-4 py-3.5 text-right whitespace-nowrap space-x-1.5" onClick={(e) => e.stopPropagation()}>
-                    {/* Dedicated Edit Job Button - Admin / Manager Only */}
-                    {!isTechnicianMode && (
-                      <button
-                        type="button"
-                        onClick={() => setEditingJob(job)}
-                        className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold rounded-lg text-[11px] inline-flex items-center gap-1 border border-amber-200 transition shadow-2xs"
-                        title="Edit Job Details"
-                      >
-                        <Edit className="w-3 h-3 text-amber-600" />
-                        <span>Edit</span>
-                      </button>
-                    )}
-
-                    {isLockedTomorrow ? (
-                      <button
-                        type="button"
-                        onClick={() => setTomorrowNoticeJob(job)}
-                        className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold rounded-lg text-[11px] inline-flex items-center gap-1 border border-indigo-200 transition"
-                      >
-                        <Lock className="w-3 h-3 text-indigo-600" /> Tomorrow Only
-                      </button>
-                    ) : (
-                      job.status !== 'COMPLETED' && job.status !== 'CANCELLED' && (
-                        <>
-                          {job.status === 'IN_PROGRESS' ? (
-                            <button
-                              onClick={() => {
-                                setSelectedJob(job);
-                                setShowCompleteModal(true);
-                              }}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-[11px] inline-flex items-center gap-1 shadow-2xs transition"
-                            >
-                              <CheckCircle2 className="w-3 h-3" /> Complete
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleStartJob(job)}
-                              className="px-2.5 py-1 bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 font-semibold rounded-lg text-[11px] inline-flex items-center gap-1 transition"
-                            >
-                              <PlayCircle className="w-3 h-3 text-emerald-600" /> Start
-                            </button>
-                          )}
-                        </>
-                      )
-                    )}
-                  </td>
+                  <th className="px-3 py-3.5">Job Code &amp; Schedule</th>
+                  <th className="px-3 py-3.5">Customer &amp; Contact</th>
+                  <th className="px-3 py-3.5">Service Location</th>
+                  <th className="px-3 py-3.5">Treatment</th>
+                  <th className="px-3 py-3.5">Technician, Crew &amp; Fleet</th>
+                  <th className="px-3 py-3.5">Status</th>
+                  <th className="px-4 py-3.5 text-right">Quick Actions</th>
                 </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {jobs.map(job => {
+                  const isLockedTomorrow = isTechnicianMode && isJobScheduledAfterToday(job);
+                  return (
+                    <tr
+                      key={job.id}
+                      onClick={() => isLockedTomorrow ? setTomorrowNoticeJob(job) : loadJobDetails(job.id)}
+                      className={`hover:bg-purple-50/40 cursor-pointer transition ${
+                        job.status === 'IN_PROGRESS' ? 'bg-amber-50/30' : ''
+                      }`}
+                    >
+                      {!isTechnicianMode && (
+                        <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedJobIds.includes(job.id)}
+                            onChange={() => toggleSelectJob(job.id)}
+                            className="rounded text-[#6D28D9] focus:ring-[#6D28D9] cursor-pointer"
+                          />
+                        </td>
+                      )}
+
+                      <td className="px-3 py-3.5 whitespace-nowrap">
+                        <div className="font-mono font-black text-slate-900">{job.job_code}</div>
+                        <div className="text-[11px] text-slate-600 font-semibold mt-0.5 flex items-center gap-1.5">
+                          <span>📅 {getJobEffectiveDate(job)}</span>
+                          <span>&bull;</span>
+                          <span>⏰ {job.scheduled_time || '09:00'}</span>
+                        </div>
+                      </td>
+
+                      <td className="px-3 py-3.5">
+                        <div className="font-black text-slate-900 text-sm">{job.customer_name}</div>
+                        {job.customer_phone && (
+                          <div className="text-[11px] font-mono text-slate-500 mt-0.5">{job.customer_phone}</div>
+                        )}
+                      </td>
+
+                      <td className="px-3 py-3.5 text-slate-600 max-w-[200px]">
+                        <div className="flex items-center gap-1 font-semibold text-slate-800">
+                          <MapPin className="w-3.5 h-3.5 text-[#F97316] shrink-0" />
+                          <span className="truncate">{job.location_name || 'Main Site'}</span>
+                        </div>
+                        {job.location_address && (
+                          <div className="text-[11px] text-slate-400 truncate pl-4">{job.location_address}</div>
+                        )}
+                      </td>
+
+                      <td className="px-3 py-3.5 whitespace-nowrap">
+                        <span
+                          style={{ backgroundColor: `${job.treatment_color || '#6D28D9'}18`, color: job.treatment_color || '#6D28D9' }}
+                          className="px-2.5 py-1 rounded-lg text-xs font-black inline-block"
+                        >
+                          {job.treatment_code}
+                        </span>
+                      </td>
+
+                      <td className="px-3 py-3.5 whitespace-nowrap">
+                        {job.technician_name ? (
+                          <div>
+                            <div className="flex items-center gap-1.5 font-black text-slate-900">
+                              <User className="w-3.5 h-3.5 text-[#6D28D9]" />
+                              <span>{job.technician_name}</span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1 mt-1">
+                              <span className="bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded text-[9px] font-black inline-flex items-center gap-0.5">
+                                👥 {job.crew_count || 1} {Number(job.crew_count || 1) === 1 ? 'Person' : 'People'}
+                              </span>
+                              {(job.vehicle_no || job.vehicle_number) && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 text-[9px] font-black border border-blue-200">
+                                  🚗 {job.vehicle_no || job.vehicle_number}
+                                </span>
+                              )}
+                              {(job.machine_name || job.machine_type) && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 text-[9px] font-black border border-purple-200">
+                                  ⚙️ {job.machine_name || job.machine_type}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 font-black text-[10px] inline-flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" /> Unassigned
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="px-3 py-3.5 whitespace-nowrap">
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
+                          job.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                          job.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse' :
+                          job.status === 'POSTPONED' ? 'bg-indigo-100 text-indigo-800' :
+                          job.status === 'CANCELLED' ? 'bg-rose-100 text-rose-800' :
+                          'bg-slate-100 text-slate-700'
+                        }`}>
+                          {job.status}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3.5 text-right whitespace-nowrap space-x-1" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => downloadJobPdfReport(job)}
+                          className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-[#4C1D95] font-black rounded-lg text-[10px] inline-flex items-center gap-1 border border-purple-200 transition cursor-pointer"
+                          title="Download Full Job PDF"
+                        >
+                          <Download className="w-3 h-3" />
+                          <span>PDF</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => shareJobOnWhatsApp(job, false)}
+                          className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-black rounded-lg text-[10px] inline-flex items-center gap-1 border border-emerald-200 transition cursor-pointer"
+                          title="Share on WhatsApp"
+                        >
+                          <Share2 className="w-3 h-3" />
+                          <span>WA</span>
+                        </button>
+
+                        {!isTechnicianMode && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingJob(job)}
+                            className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-black rounded-lg text-[10px] inline-flex items-center gap-1 border border-amber-200 transition cursor-pointer"
+                            title="Edit Job Details"
+                          >
+                            <Edit className="w-3 h-3 text-amber-600" />
+                            <span>Edit</span>
+                          </button>
+                        )}
+
+                        {isLockedTomorrow ? (
+                          <button
+                            type="button"
+                            onClick={() => setTomorrowNoticeJob(job)}
+                            className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold rounded-lg text-[10px] inline-flex items-center gap-1 border border-indigo-200 transition"
+                          >
+                            <Lock className="w-3 h-3 text-indigo-600" /> Tomorrow Only
+                          </button>
+                        ) : (
+                          job.status !== 'COMPLETED' && job.status !== 'CANCELLED' && (
+                            <>
+                              {job.status === 'IN_PROGRESS' ? (
+                                <button
+                                  onClick={() => {
+                                    setSelectedJob(job);
+                                    setShowCompleteModal(true);
+                                  }}
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-lg text-[10px] inline-flex items-center gap-1 shadow-2xs transition cursor-pointer"
+                                >
+                                  <CheckCircle2 className="w-3 h-3" /> Complete
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleStartJob(job)}
+                                  className="px-2.5 py-1 bg-[#F97316] hover:bg-[#EA580C] text-white font-black rounded-lg text-[10px] inline-flex items-center gap-1 transition cursor-pointer"
+                                >
+                                  <PlayCircle className="w-3 h-3" /> Start
+                                </button>
+                              )}
+                            </>
+                          )
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Job Details Drawer / Inspection Modal */}
@@ -1016,27 +1745,57 @@ export default function JobsView({
           <div className="bg-white w-full max-w-xl h-full shadow-2xl overflow-y-auto flex flex-col animate-in slide-in-from-right duration-200">
 
             {/* Header */}
-            <div className="p-5 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white z-10">
-              <div>
-                <span className="text-xs font-mono font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
-                  {selectedJob.job_code}
-                </span>
-                <h2 className="font-extrabold text-lg text-slate-900 mt-1">{selectedJob.customer_name}</h2>
-              </div>
-              <div className="flex items-center gap-2">
-                {!isTechnicianMode && (
-                  <button
-                    type="button"
-                    onClick={() => setEditingJob(selectedJob)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs rounded-xl border border-amber-200 transition shadow-2xs"
-                    title="Edit All Job Details"
-                  >
-                    <Edit className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Edit Job</span>
+            <div className="p-5 border-b border-slate-200 sticky top-0 bg-white z-10 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-mono font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
+                    {selectedJob.job_code}
+                  </span>
+                  <h2 className="font-extrabold text-lg text-slate-900 mt-1">{selectedJob.customer_name}</h2>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!isTechnicianMode && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingJob(selectedJob)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs rounded-xl border border-amber-200 transition shadow-2xs cursor-pointer"
+                      title="Edit All Job Details"
+                    >
+                      <Edit className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Edit Job</span>
+                    </button>
+                  )}
+                  <button onClick={() => setSelectedJob(null)} className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition cursor-pointer">
+                    <X className="w-5 h-5" />
                   </button>
-                )}
-                <button onClick={() => setSelectedJob(null)} className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
-                  <X className="w-5 h-5" />
+                </div>
+              </div>
+
+              {/* PDF Download, WhatsApp Share & Print Toolbar inside Job Drawer */}
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => downloadJobPdfReport(selectedJob)}
+                  className="px-3 py-1.5 rounded-xl bg-[#4C1D95] hover:bg-[#3B0764] text-white font-black text-xs flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => shareJobOnWhatsApp(selectedJob, false)}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>WhatsApp Share</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => printJobReport(selectedJob)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 font-black text-xs flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print</span>
                 </button>
               </div>
             </div>
@@ -1063,7 +1822,7 @@ export default function JobsView({
                     <button
                       type="button"
                       onClick={() => setEditingJob(selectedJob)}
-                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow-xs flex items-center gap-1 transition"
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow-xs flex items-center gap-1 transition cursor-pointer"
                     >
                       <Edit className="w-3.5 h-3.5" /> Edit Details
                     </button>
@@ -1073,13 +1832,13 @@ export default function JobsView({
                     <>
                       <button
                         onClick={() => setShowCompleteModal(true)}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs flex items-center gap-1"
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs flex items-center gap-1 cursor-pointer"
                       >
                         <Check className="w-3.5 h-3.5" /> Complete Job
                       </button>
                       <button
                         onClick={() => setShowPostponeModal(true)}
-                        className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl"
+                        className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl cursor-pointer"
                       >
                         Postpone
                       </button>

@@ -38,11 +38,24 @@ export default function CalendarView({
 
   const lockedTechId = isTechnicianMode ? getEffectiveTechId() : '';
 
-  const [viewMode, setViewMode] = useState('month'); // 'day', 'week', 'month', 'list'
+  const colomboToday = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Colombo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
+
+  const [viewMode, setViewMode] = useState('month'); // 'month', 'week', 'day', 'list', 'today_assign'
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [events, setEvents] = useState([]);
   const [eventsByDate, setEventsByDate] = useState({});
   const [loading, setLoading] = useState(true);
+
+  // Dedicated state for "Today Assign Job" tab (always pinned to Today in Asia/Colombo)
+  const [todayJobs, setTodayJobs] = useState([]);
+  const [todayLoading, setTodayLoading] = useState(true);
+  const [todayFilterMode, setTodayFilterMode] = useState('all'); // 'all' | 'assigned' | 'unassigned'
+  const [todayTechFilter, setTodayTechFilter] = useState('');
 
   // Filters
   const [filterFrequency, setFilterFrequency] = useState('all');
@@ -83,8 +96,25 @@ export default function CalendarView({
     getTreatments().then(r => setTreatments(r.treatments || []));
   }, []);
 
+  const loadTodayJobs = async () => {
+    setTodayLoading(true);
+    try {
+      const res = await getCalendarEvents({
+        start_date: colomboToday,
+        end_date: colomboToday,
+        technician_id: isTechnicianMode ? (lockedTechId || filterTechnician) : ''
+      });
+      setTodayJobs(res.events || []);
+    } catch (e) {
+      console.error('Error loading today jobs:', e);
+    } finally {
+      setTodayLoading(false);
+    }
+  };
+
   const loadEvents = async () => {
     setLoading(true);
+    loadTodayJobs();
     try {
       // Calculate start and end date based on current month
       const year = currentDate.getFullYear();
@@ -203,6 +233,25 @@ export default function CalendarView({
     postponed: events.filter(e => e.status === 'POSTPONED').length,
   };
 
+  // Compute statistics specifically for Today's Jobs
+  const todayAssignedJobs = todayJobs.filter(j => Boolean(j.technician_id) || j.status === 'ASSIGNED' || j.status === 'IN_PROGRESS' || j.status === 'COMPLETED');
+  const todayUnassignedJobs = todayJobs.filter(j => !j.technician_id && j.status !== 'ASSIGNED' && j.status !== 'IN_PROGRESS' && j.status !== 'COMPLETED');
+  const todayStats = {
+    total: todayJobs.length,
+    assigned: todayAssignedJobs.length,
+    unassigned: todayUnassignedJobs.length,
+    inProgress: todayJobs.filter(e => e.status === 'IN_PROGRESS').length,
+    completed: todayJobs.filter(e => e.status === 'COMPLETED').length,
+  };
+
+  // Filtered Today Jobs for the "Today Assign Job" tab
+  const displayedTodayJobs = todayJobs.filter(j => {
+    if (todayFilterMode === 'assigned' && !j.technician_id && j.status !== 'ASSIGNED' && j.status !== 'IN_PROGRESS' && j.status !== 'COMPLETED') return false;
+    if (todayFilterMode === 'unassigned' && (Boolean(j.technician_id) || j.status === 'ASSIGNED' || j.status === 'IN_PROGRESS' || j.status === 'COMPLETED')) return false;
+    if (todayTechFilter && String(j.technician_id || '') !== String(todayTechFilter)) return false;
+    return true;
+  });
+
   return (
     <div className="space-y-5 pb-16">
 
@@ -220,7 +269,7 @@ export default function CalendarView({
                 <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-ping" />
                 Live Operational Schedule
               </span>
-              <span className="text-[10px] text-slate-500 font-medium">Asia/Colombo Timezone</span>
+              <span className="text-[10px] text-slate-500 font-medium">Asia/Colombo Timezone ({colomboToday})</span>
             </div>
 
             <h1 className="text-xl sm:text-3xl font-black tracking-tight text-slate-900 flex items-center gap-2.5 sm:gap-3">
@@ -246,13 +295,14 @@ export default function CalendarView({
               </button>
             )}
 
-            {/* View Mode Toggle Switcher */}
-            <div className="bg-slate-100 p-1 rounded-2xl flex items-center gap-1 border border-slate-200 text-xs font-bold">
+            {/* View Mode Toggle Switcher (All previous Calendar Modes + Extra "Today Assign Job" Tab) */}
+            <div className="bg-slate-100 p-1 rounded-2xl flex flex-wrap items-center gap-1 border border-slate-200 text-xs font-bold">
               {['month', 'week', 'day', 'list'].map(mode => (
                 <button
                   key={mode}
+                  type="button"
                   onClick={() => setViewMode(mode)}
-                  className={`px-3.5 py-1.5 rounded-xl capitalize transition-all duration-200 ${
+                  className={`px-3.5 py-1.5 rounded-xl capitalize transition-all duration-200 cursor-pointer ${
                     viewMode === mode
                       ? 'bg-red-600 text-white shadow-md font-black scale-102'
                       : 'text-slate-600 hover:text-slate-950 hover:bg-white'
@@ -261,68 +311,424 @@ export default function CalendarView({
                   {mode}
                 </button>
               ))}
+
+              <button
+                type="button"
+                onClick={() => setViewMode('today_assign')}
+                className={`px-3.5 py-1.5 rounded-xl transition-all duration-200 flex items-center gap-1.5 cursor-pointer ${
+                  viewMode === 'today_assign'
+                    ? 'bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-md font-black scale-102'
+                    : 'text-red-700 bg-red-50 hover:bg-red-100 font-extrabold border border-red-200'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Today Assign Job</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                  viewMode === 'today_assign' ? 'bg-white text-red-700' : 'bg-red-600 text-white'
+                }`}>
+                  {todayStats.total}
+                </span>
+              </button>
             </div>
           </div>
         </div>
 
         {/* Operational Statistics Pill Cards */}
-        <div className="relative z-10 grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-5 border-t border-slate-100">
-          
-          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-slate-200/80 text-slate-700 flex items-center justify-center font-bold">
-              <CalendarIcon className="w-4 h-4" />
+        {viewMode === 'today_assign' ? (
+          <div className="relative z-10 grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-5 border-t border-slate-100">
+            <div className="p-3 rounded-2xl bg-red-50 border border-red-200 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-red-600 text-white flex items-center justify-center font-bold shadow-xs">
+                <CalendarIcon className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-lg font-black text-red-900">{todayStats.total}</div>
+                <div className="text-[10px] font-bold text-red-700 uppercase tracking-wider">Today Total Jobs</div>
+              </div>
             </div>
-            <div>
-              <div className="text-lg font-black text-slate-900">{stats.total}</div>
-              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total in View</div>
+
+            <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+                <User className="w-4 h-4 text-indigo-600" />
+              </div>
+              <div>
+                <div className="text-lg font-black text-indigo-900">{todayStats.assigned}</div>
+                <div className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Assigned Jobs</div>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+              </div>
+              <div>
+                <div className="text-lg font-black text-amber-800">{todayStats.unassigned}</div>
+                <div className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Unassigned</div>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-blue-50 border border-blue-200 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                <Clock className="w-4 h-4 text-blue-600" />
+              </div>
+              <div>
+                <div className="text-lg font-black text-blue-800">{todayStats.inProgress}</div>
+                <div className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">In Progress</div>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center gap-3 col-span-2 sm:col-span-1">
+              <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div>
+                <div className="text-lg font-black text-emerald-800">{todayStats.completed}</div>
+                <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Completed Today</div>
+              </div>
             </div>
           </div>
+        ) : (
+          <div className="relative z-10 grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-5 border-t border-slate-100">
+            
+            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-slate-200/80 text-slate-700 flex items-center justify-center font-bold">
+                <CalendarIcon className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-lg font-black text-slate-900">{stats.total}</div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total in View</div>
+              </div>
+            </div>
 
-          <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div>
+                <div className="text-lg font-black text-emerald-800">{stats.completed}</div>
+                <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Completed</div>
+              </div>
             </div>
-            <div>
-              <div className="text-lg font-black text-emerald-800">{stats.completed}</div>
-              <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Completed</div>
+
+            <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                <Clock className="w-4 h-4 text-amber-600" />
+              </div>
+              <div>
+                <div className="text-lg font-black text-amber-800">{stats.inProgress}</div>
+                <div className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">In Progress</div>
+              </div>
             </div>
+
+            <div className="p-3 rounded-2xl bg-red-50 border border-red-200 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-red-100 text-red-700 flex items-center justify-center font-bold">
+                <User className="w-4 h-4 text-red-600" />
+              </div>
+              <div>
+                <div className="text-lg font-black text-red-800">{stats.assignedOrPending}</div>
+                <div className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Assigned / To Do</div>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-purple-50 border border-purple-200 flex items-center gap-3 col-span-2 sm:col-span-1">
+              <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+                <AlertTriangle className="w-4 h-4 text-purple-600" />
+              </div>
+              <div>
+                <div className="text-lg font-black text-purple-800">{stats.postponed}</div>
+                <div className="text-[10px] font-bold text-purple-600 uppercase tracking-wider">Postponed</div>
+              </div>
+            </div>
+
           </div>
-
-          <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
-              <Clock className="w-4 h-4 text-amber-600" />
-            </div>
-            <div>
-              <div className="text-lg font-black text-amber-800">{stats.inProgress}</div>
-              <div className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">In Progress</div>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-2xl bg-red-50 border border-red-200 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-red-100 text-red-700 flex items-center justify-center font-bold">
-              <User className="w-4 h-4 text-red-600" />
-            </div>
-            <div>
-              <div className="text-lg font-black text-red-800">{stats.assignedOrPending}</div>
-              <div className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Assigned / To Do</div>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-2xl bg-purple-50 border border-purple-200 flex items-center gap-3 col-span-2 sm:col-span-1">
-            <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
-              <AlertTriangle className="w-4 h-4 text-purple-600" />
-            </div>
-            <div>
-              <div className="text-lg font-black text-purple-800">{stats.postponed}</div>
-              <div className="text-[10px] font-bold text-purple-600 uppercase tracking-wider">Postponed</div>
-            </div>
-          </div>
-
-        </div>
+        )}
 
       </div>
 
-      {/* Colorful Interactive Treatment & Frequency Filter Bar */}
+      {/* VIEW 0: TODAY ASSIGN JOB TAB (LIST ONLY - NO CALENDAR MODE) */}
+      {viewMode === 'today_assign' && (
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-md overflow-hidden">
+          {/* Today Job Count & Filter Header */}
+          <div className="p-5 sm:p-6 bg-gradient-to-r from-red-50/80 via-orange-50/50 to-white border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-md flex items-center gap-2.5">
+                <Zap className="w-5 h-5" />
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider font-extrabold text-red-100">Today Job Count</div>
+                  <div className="text-lg font-black leading-none">{displayedTodayJobs.length} {displayedTodayJobs.length === 1 ? 'Job' : 'Jobs'}</div>
+                </div>
+              </div>
+
+              <div>
+                <h2 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
+                  <span>Today Assigned & Scheduled Jobs</span>
+                  <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-lg bg-red-100 text-red-800 border border-red-200">
+                    {colomboToday}
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Total Today: <strong className="text-slate-900">{todayStats.total}</strong> &bull; Assigned: <strong className="text-indigo-700">{todayStats.assigned}</strong> &bull; Unassigned: <strong className="text-amber-700">{todayStats.unassigned}</strong> &bull; Completed: <strong className="text-emerald-700">{todayStats.completed}</strong>
+                </p>
+              </div>
+            </div>
+
+            {/* Sub-filters for Today Jobs */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200 text-xs font-bold">
+                {[
+                  { id: 'all', label: `All Today (${todayStats.total})` },
+                  { id: 'assigned', label: `Assigned (${todayStats.assigned})` },
+                  { id: 'unassigned', label: `Unassigned (${todayStats.unassigned})` },
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setTodayFilterMode(tab.id)}
+                    className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                      todayFilterMode === tab.id
+                        ? 'bg-red-600 text-white font-black shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {!isTechnicianMode && (
+                <select
+                  value={todayTechFilter}
+                  onChange={(e) => setTodayTechFilter(e.target.value)}
+                  className="bg-white text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:border-red-500 text-slate-800 shadow-2xs"
+                >
+                  <option value="">All Technicians ({todayStats.total})</option>
+                  {staff.filter(s => s.role === 'TECHNICIAN').map(s => {
+                    const techJobCount = todayJobs.filter(j => String(j.technician_id) === String(s.id)).length;
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {s.full_name} ({techJobCount} {techJobCount === 1 ? 'job' : 'jobs'})
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
+            </div>
+          </div>
+
+          {/* Technician Breakdown Pills (When Today has assigned technicians) */}
+          {!isTechnicianMode && staff.filter(s => s.role === 'TECHNICIAN').some(s => todayJobs.some(j => String(j.technician_id) === String(s.id))) && (
+            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-100 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 mr-1">Technician Today Count:</span>
+              <button
+                type="button"
+                onClick={() => setTodayTechFilter('')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                  !todayTechFilter ? 'bg-slate-800 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                All ({todayStats.total})
+              </button>
+              {staff.filter(s => s.role === 'TECHNICIAN').map(s => {
+                const count = todayJobs.filter(j => String(j.technician_id) === String(s.id)).length;
+                if (count === 0) return null;
+                const isSelected = String(todayTechFilter) === String(s.id);
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setTodayTechFilter(isSelected ? '' : String(s.id))}
+                    className={`px-2.5 py-1 rounded-lg font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'bg-white border border-indigo-200 text-indigo-900 hover:bg-indigo-50'
+                    }`}
+                  >
+                    <User className="w-3 h-3" />
+                    <span>{s.full_name}</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                      isSelected ? 'bg-white text-indigo-700' : 'bg-indigo-100 text-indigo-800'
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Today Jobs List */}
+          <div className="divide-y divide-slate-100">
+            {todayLoading ? (
+              <div className="p-12 text-center text-slate-500 text-xs font-bold">
+                Loading today's jobs ({colomboToday})...
+              </div>
+            ) : displayedTodayJobs.length === 0 ? (
+              <div className="p-14 text-center space-y-2">
+                <div className="text-slate-400 font-bold text-sm">
+                  No jobs found for today ({colomboToday}) matching the selected filter.
+                </div>
+                {todayFilterMode !== 'all' || todayTechFilter ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTodayFilterMode('all');
+                      setTodayTechFilter('');
+                    }}
+                    className="px-4 py-2 rounded-xl bg-red-50 text-red-700 font-bold text-xs hover:bg-red-100 transition cursor-pointer"
+                  >
+                    Show All Today Jobs ({todayStats.total})
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              displayedTodayJobs.map((job, idx) => (
+                <div
+                  key={job.id}
+                  onClick={() => setSelectedDayEvents({ dateStr: job.scheduled_date, day: null, events: displayedTodayJobs, highlightedJobId: job.id })}
+                  className="p-4 sm:p-5 hover:bg-slate-50/90 cursor-pointer flex flex-col lg:flex-row lg:items-center justify-between gap-4 text-xs transition group"
+                >
+                  <div className="flex items-start sm:items-center gap-3.5">
+                    {/* Job Number Index Badge */}
+                    <div className="w-9 h-9 rounded-xl bg-red-50 border border-red-200 text-red-700 font-black text-xs flex items-center justify-center shrink-0">
+                      #{idx + 1}
+                    </div>
+
+                    {/* Time & Job Code Box */}
+                    <div className="font-mono text-center min-w-[92px] p-2 rounded-xl bg-slate-50 border border-slate-200 group-hover:border-red-300 transition shrink-0">
+                      <div className="font-black text-slate-900 text-xs">{job.scheduled_time || '09:00'}</div>
+                      <div className="text-slate-500 text-[10px] font-bold mt-0.5">{job.job_code}</div>
+                    </div>
+
+                    {/* Treatment Color Bar */}
+                    <div
+                      className="w-2 h-12 rounded-full shrink-0 shadow-xs hidden sm:block"
+                      style={{ backgroundColor: job.treatment_color || '#10B981' }}
+                    />
+
+                    {/* Main Customer & Job Info */}
+                    <div className="space-y-1 min-w-0">
+                      <div className="font-black text-slate-900 text-sm sm:text-base flex flex-wrap items-center gap-2">
+                        <span>{job.customer_name}</span>
+                        <span
+                          style={{
+                            backgroundColor: `${job.treatment_color || '#10B981'}20`,
+                            color: job.treatment_color || '#10B981'
+                          }}
+                          className="text-[10px] font-black px-2 py-0.5 rounded-md uppercase"
+                        >
+                          {job.treatment_code} {job.treatment_name ? `- ${job.treatment_name}` : ''}
+                        </span>
+                        {job.recurring_frequency && (
+                          <span className="text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-md uppercase">
+                            {job.recurring_frequency}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="text-slate-600 text-xs flex flex-wrap items-center gap-3 font-medium">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{job.location_name || 'Main Location'}</span>
+                        </span>
+
+                        {job.customer_phone && (
+                          <a
+                            href={`tel:${job.customer_phone}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center gap-1 text-emerald-700 font-bold hover:underline font-mono"
+                          >
+                            <Phone className="w-3 h-3 text-emerald-600" />
+                            <span>{job.customer_phone}</span>
+                          </a>
+                        )}
+
+                        {job.technician_name ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 font-bold border border-emerald-200">
+                            <User className="w-3 h-3 text-emerald-600" />
+                            <span>Tech: {job.technician_name}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 text-amber-800 font-bold border border-amber-200">
+                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            <span>Unassigned</span>
+                          </span>
+                        )}
+
+                        {(job.crew_count > 1 || job.workers_info) && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 font-bold text-[10px] border border-indigo-200">
+                            <HardHat className="w-3 h-3 text-indigo-600" />
+                            <span>{job.crew_count || 1} Crew</span>
+                          </span>
+                        )}
+
+                        {(job.vehicle_no || job.vehicle_number) && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 text-blue-800 font-bold text-[10px] border border-blue-200">
+                            🚗 {job.vehicle_no || job.vehicle_number}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Side: Quick Assign Technician Dropdown, Status Badge & Edit Button */}
+                  <div
+                    className="flex flex-wrap items-center gap-2 self-end lg:self-center shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {!isTechnicianMode && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] uppercase font-bold text-slate-400">Assign:</span>
+                        <select
+                          value={job.technician_id || ''}
+                          onChange={async (e) => {
+                            const newTechId = e.target.value;
+                            try {
+                              await assignJob(job.id, newTechId || null);
+                              loadEvents();
+                            } catch (err) {
+                              alert('Error assigning technician: ' + err.message);
+                            }
+                          }}
+                          className="text-xs bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 font-bold text-slate-800 focus:outline-hidden focus:border-red-500 shadow-2xs"
+                        >
+                          <option value="">-- Unassigned --</option>
+                          {staff.filter(s => s.role === 'TECHNICIAN').map(s => (
+                            <option key={s.id} value={s.id}>{s.full_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-wide uppercase ${
+                      job.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                      job.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-800 border border-amber-200 animate-pulse' :
+                      job.status === 'POSTPONED' ? 'bg-indigo-100 text-indigo-800 border border-indigo-200' :
+                      job.status === 'ASSIGNED' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
+                      'bg-slate-100 text-slate-700 border border-slate-200'
+                    }`}>
+                      {job.status}
+                    </span>
+
+                    {!isTechnicianMode && (
+                      <button
+                        type="button"
+                        onClick={() => setEditingJob(job)}
+                        className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold rounded-xl text-xs flex items-center gap-1 border border-amber-200 transition shadow-2xs cursor-pointer"
+                        title="Edit Job Details"
+                      >
+                        <Edit className="w-3 h-3 text-amber-600" />
+                        <span>Edit</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Colorful Interactive Treatment & Frequency Filter Bar (Hidden on Today Assign Job tab) */}
+      {viewMode !== 'today_assign' && (
       <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
         
         {/* Treatment Color Legend Chips */}
@@ -503,6 +909,7 @@ export default function CalendarView({
         </div>
 
       </div>
+      )}
 
       {/* VIEW 1: MONTH GRID VIEW */}
       {viewMode === 'month' && (

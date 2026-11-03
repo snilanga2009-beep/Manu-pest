@@ -2,23 +2,22 @@ import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck, Lock, User, Phone, Key, Smartphone,
   CheckCircle2, AlertCircle, ArrowRight, Eye, EyeOff,
-  Sparkles, RefreshCw, Send, Check
+  Sparkles, RefreshCw, Send, Check, Briefcase, HardHat
 } from 'lucide-react';
-import { getSavedBranding, fetchServerBranding, PresetLogoIcon } from '../components/BrandingSettingsModal';
+import { getSavedBranding, fetchServerBranding } from '../components/BrandingSettingsModal';
 import TechnicianLoginView from './TechnicianLoginView';
 
 export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) {
-  const isTechOnly = technicianOnly ||
+  const isTechOrManagerDirect = technicianOnly ||
     (typeof window !== 'undefined' && (
       window.location.pathname.startsWith('/tech') ||
+      window.location.pathname.startsWith('/manager') ||
       window.location.search.includes('tech') ||
+      window.location.search.includes('manager') ||
       window.location.search.includes('job')
     ));
 
-  if (isTechOnly) {
-    return <TechnicianLoginView onLoginSuccess={onLoginSuccess} />;
-  }
-
+  const [loginMode, setLoginMode] = useState('PASSWORD'); // 'PASSWORD' | 'MANAGER_OTP' | 'TECH_OTP'
   const [branding, setBranding] = useState(getSavedBranding());
   const [selectedRole] = useState('ALL');
   const [identifier, setIdentifier] = useState('admin');
@@ -34,6 +33,46 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
     window.addEventListener('branding-updated', handleBranding);
     return () => window.removeEventListener('branding-updated', handleBranding);
   }, []);
+
+  if (isTechOrManagerDirect) {
+    return <TechnicianLoginView onLoginSuccess={onLoginSuccess} />;
+  }
+
+  if (loginMode === 'MANAGER_OTP') {
+    return (
+      <div className="relative">
+        <div className="fixed top-4 right-4 z-50">
+          <button
+            type="button"
+            onClick={() => setLoginMode('PASSWORD')}
+            className="px-4 py-2 rounded-full bg-white/95 hover:bg-white text-[#3B0764] font-black text-xs shadow-xl border border-purple-200 flex items-center gap-1.5 cursor-pointer transition"
+          >
+            <Lock className="w-3.5 h-3.5 text-orange-500" />
+            <span>Switch to Admin Password Login</span>
+          </button>
+        </div>
+        <TechnicianLoginView onLoginSuccess={onLoginSuccess} initialRole="MANAGER" />
+      </div>
+    );
+  }
+
+  if (loginMode === 'TECH_OTP') {
+    return (
+      <div className="relative">
+        <div className="fixed top-4 right-4 z-50">
+          <button
+            type="button"
+            onClick={() => setLoginMode('PASSWORD')}
+            className="px-4 py-2 rounded-full bg-white/95 hover:bg-white text-[#3B0764] font-black text-xs shadow-xl border border-purple-200 flex items-center gap-1.5 cursor-pointer transition"
+          >
+            <Lock className="w-3.5 h-3.5 text-orange-500" />
+            <span>Switch to Admin Password Login</span>
+          </button>
+        </div>
+        <TechnicianLoginView onLoginSuccess={onLoginSuccess} initialRole="TECHNICIAN" />
+      </div>
+    );
+  }
 
   // Handle Password Sign-In
   const handlePasswordLogin = async (e) => {
@@ -176,7 +215,7 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
             </svg>
           </div>
 
-          <div className="space-y-5 relative z-10">
+          <div className="space-y-4 relative z-10">
             <div>
               <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-orange-600 bg-orange-50 px-3 py-1 rounded-full border border-orange-200">
                 <Sparkles className="w-3 h-3 text-orange-500" />
@@ -186,30 +225,63 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
                 Operations Control Dashboard
               </h2>
               <p className="text-xs text-slate-500 font-semibold mt-0.5">
-                Sign in to access schedules, dispatching &amp; operations
+                Sign in via Password or open Manager / Technician 1-Time OTP App
               </p>
             </div>
 
-            {/* Highlighted Operations Control Banner */}
-            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-50 via-orange-50/60 to-purple-50 border border-purple-200 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#F97316] to-[#FF8A00] text-white flex items-center justify-center shrink-0 shadow-md shadow-orange-500/20">
-                <ShieldCheck className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <div className="font-black text-[#3B0764] text-xs sm:text-sm">
-                  Operations Control Dashboard
-                </div>
-                <div className="text-[11px] text-slate-600 font-medium">
-                  Authorized Administrator &amp; Operations Manager Access
-                </div>
-              </div>
+            {/* Quick Mobile App OTP Launchers (Manager App OTP & Technician App OTP) */}
+            <div className="grid grid-cols-2 gap-2 p-2 rounded-2xl bg-purple-50/80 border border-purple-100">
+              <button
+                type="button"
+                onClick={() => setLoginMode('MANAGER_OTP')}
+                className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#4C1D95] to-[#6D28D9] hover:from-[#3B0764] hover:to-[#5B21B6] text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer"
+              >
+                <Briefcase className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                <span className="truncate">Manager App (OTP)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setLoginMode('TECH_OTP')}
+                className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer"
+              >
+                <HardHat className="w-3.5 h-3.5 text-white shrink-0" />
+                <span className="truncate">Technician App (OTP)</span>
+              </button>
             </div>
 
             <form noValidate onSubmit={handlePasswordLogin} className="space-y-4">
               <div>
-                <label className="block text-[11px] font-black uppercase tracking-wider text-slate-600 mb-1.5">
-                  Username / Phone / Email
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[11px] font-black uppercase tracking-wider text-slate-600">
+                    Username / Phone / Email
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => { setIdentifier('admin'); setPassword('admin123'); }}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 transition cursor-pointer"
+                      title="Quick Fill System Admin"
+                    >
+                      Admin
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setIdentifier('manager'); setPassword('manager123'); }}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 transition cursor-pointer"
+                      title="Quick Fill Operations Manager"
+                    >
+                      Manager
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setIdentifier('supervisor'); setPassword('supervisor123'); }}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200 transition cursor-pointer"
+                      title="Quick Fill Field Supervisor"
+                    >
+                      Supervisor
+                    </button>
+                  </div>
+                </div>
                 <div className="relative">
                   <User className="w-4 h-4 text-orange-500 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input

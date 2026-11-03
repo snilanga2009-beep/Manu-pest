@@ -9,6 +9,7 @@ import {
   addCustomerLocation, createRecurringService, updateRecurringService, deleteRecurringService, generateRecurringSchedule, getTreatments, getStaff
 } from '../api';
 import EditCustomerModal from '../components/EditCustomerModal';
+import GpsCoordinatePicker from '../components/GpsCoordinatePicker';
 
 
 export const FREQUENCY_OPTIONS = [
@@ -49,11 +50,12 @@ export default function CustomersView({
   currentTechnicianId,
   isMobileView
 }) {
-  const isTechnician = currentRole === 'TECHNICIAN' || (Boolean(currentTechnicianId) && currentRole !== 'ADMIN' && currentRole !== 'MANAGER');
+  const isSupervisor = currentRole === 'SUPERVISOR';
+  const isTechnician = currentRole === 'TECHNICIAN' || (Boolean(currentTechnicianId) && currentRole !== 'ADMIN' && currentRole !== 'MANAGER' && !isSupervisor);
   const lockedTechId = currentTechnicianId ? String(currentTechnicianId) : (isTechnician ? (typeof window !== 'undefined' ? localStorage.getItem('tech_preferred_id') || '' : '') : '');
 
   // In mobile view or technician mode, default to showing ONLY customers where jobs are done
-  const [jobDoneOnly, setJobDoneOnly] = useState(() => isTechnician || Boolean(isMobileView));
+  const [jobDoneOnly, setJobDoneOnly] = useState(() => (isTechnician || Boolean(isMobileView)) && !isSupervisor);
 
   const [customers, setCustomers] = useState([]);
   const [total, setTotal] = useState(0);
@@ -282,16 +284,18 @@ export default function CustomersView({
         <div>
           <h1 className="text-lg sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
             <Users className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-600" />
-            <span>{isTechnician || jobDoneOnly ? 'Job Done Customers' : 'Customer Management & Service Timelines'}</span>
+            <span>{isSupervisor ? 'Customer Management & Service Timelines' : (isTechnician || jobDoneOnly ? 'Job Done Customers' : 'Customer Management & Service Timelines')}</span>
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            {isTechnician || jobDoneOnly
+            {isSupervisor
+              ? 'Field Supervisor View: Explore customer profiles, multi-locations, and complete historical service timelines.'
+              : (isTechnician || jobDoneOnly)
               ? 'Showing only client accounts where service jobs have been completed.'
               : 'Manage customers, multi-location sites, recurring contracts, and complete historical service timelines.'}
           </p>
         </div>
 
-        {!isTechnician && (
+        {!isTechnician && !isSupervisor && (
           <button
             onClick={() => setShowAddCustomerModal(true)}
             className="flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-xs transition"
@@ -450,7 +454,7 @@ export default function CustomersView({
                   </a>
                 )}
 
-                {!isTechnician && (
+                {!isTechnician && !isSupervisor && (
                   <button
                     type="button"
                     onClick={() => setEditingCustomer(activeCustomer)}
@@ -474,7 +478,7 @@ export default function CustomersView({
             <div className="p-4 sm:p-6 space-y-6 flex-1 pb-28">
 
               {/* Action Bar for Locations & Services (Admins / Managers only) */}
-              {!isTechnician && (
+              {!isTechnician && !isSupervisor && (
                 <div className="flex flex-wrap items-center gap-2.5">
                   <button
                     type="button"
@@ -568,34 +572,36 @@ export default function CustomersView({
                               <span className="text-slate-600">Assigned Tech: <strong className="text-slate-900">{r.technician_name || 'Unassigned'}</strong></span>
                             </div>
 
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => handleGenerateSchedule(r.id, 3)}
-                                className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold text-[11px] rounded-lg border border-blue-200 flex items-center gap-1 transition"
-                                title="Generate next 3 months of recurring jobs on the Master Operations Calendar"
-                              >
-                                <CalendarCheck className="w-3 h-3 text-blue-600" />
-                                <span>+3M Schedule</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditRecurring(r)}
-                                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-[11px] rounded-lg border border-amber-200 flex items-center gap-1 transition"
-                                title="Edit Recurring Contract"
-                              >
-                                <Edit className="w-3 h-3 text-amber-600" />
-                                <span>Edit</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteRecurring(r.id)}
-                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
-                                title="Cancel Contract"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                            {!isSupervisor && (
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleGenerateSchedule(r.id, 3)}
+                                  className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold text-[11px] rounded-lg border border-blue-200 flex items-center gap-1 transition"
+                                  title="Generate next 3 months of recurring jobs on the Master Operations Calendar"
+                                >
+                                  <CalendarCheck className="w-3 h-3 text-blue-600" />
+                                  <span>+3M Schedule</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditRecurring(r)}
+                                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-[11px] rounded-lg border border-amber-200 flex items-center gap-1 transition"
+                                  title="Edit Recurring Contract"
+                                >
+                                  <Edit className="w-3 h-3 text-amber-600" />
+                                  <span>Edit</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteRecurring(r.id)}
+                                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                                  title="Cancel Contract"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -809,30 +815,20 @@ export default function CustomersView({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold text-slate-700">GPS Latitude</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={newCustomerForm.latitude}
-                    onChange={(e) => setNewCustomerForm({ ...newCustomerForm, latitude: e.target.value })}
-                    placeholder="e.g. 6.9271"
-                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="font-semibold text-slate-700">GPS Longitude</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={newCustomerForm.longitude}
-                    onChange={(e) => setNewCustomerForm({ ...newCustomerForm, longitude: e.target.value })}
-                    placeholder="e.g. 79.8612"
-                    className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
-                  />
-                </div>
-              </div>
+              <GpsCoordinatePicker
+                latitude={newCustomerForm.latitude}
+                longitude={newCustomerForm.longitude}
+                locationText={newCustomerForm.location || newCustomerForm.address}
+                onChange={({ latitude, longitude, locationName }) => {
+                  setNewCustomerForm(prev => ({
+                    ...prev,
+                    latitude: latitude !== undefined ? latitude : prev.latitude,
+                    longitude: longitude !== undefined ? longitude : prev.longitude,
+                    location: (!prev.location && locationName) ? locationName : prev.location,
+                    primary_location_name: (!prev.primary_location_name && locationName) ? locationName : prev.primary_location_name
+                  }));
+                }}
+              />
 
               <div>
                 <label className="font-semibold text-slate-700">Special Instructions / Duration</label>
@@ -994,7 +990,7 @@ export default function CustomersView({
       {/* Add Location Modal */}
       {showAddLocationModal && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-lg w-full max-h-[92vh] overflow-y-auto p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2 className="text-base font-bold text-slate-900">Add Service Location</h2>
               <button onClick={() => setShowAddLocationModal(false)} className="text-slate-400 hover:text-slate-700">
@@ -1024,6 +1020,20 @@ export default function CustomersView({
                   className="w-full mt-1 p-2 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
                 />
               </div>
+
+              <GpsCoordinatePicker
+                latitude={newLocationForm.latitude}
+                longitude={newLocationForm.longitude}
+                locationText={newLocationForm.location_name || newLocationForm.address}
+                onChange={({ latitude, longitude, locationName }) => {
+                  setNewLocationForm(prev => ({
+                    ...prev,
+                    latitude: latitude !== undefined ? latitude : prev.latitude,
+                    longitude: longitude !== undefined ? longitude : prev.longitude,
+                    location_name: (!prev.location_name && locationName) ? locationName : prev.location_name
+                  }));
+                }}
+              />
 
               <div className="flex justify-end gap-2 pt-3">
                 <button type="button" onClick={() => setShowAddLocationModal(false)} className="px-4 py-2 text-slate-600 font-semibold">Cancel</button>

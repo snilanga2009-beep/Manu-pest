@@ -5,80 +5,119 @@ const db = require('../db');
 const { normalizeSriLankaPhone, sendSMS } = require('../services/smsGateway');
 
 /**
- * 1. Request SMS OTP for Field Technician
+ * Strictly extracts the 9-digit Sri Lankan mobile subscriber number (starting with '7').
+ * Returns null if the number is not a valid Sri Lankan mobile number.
+ */
+function extractSriLanka9Digits(rawPhone) {
+  if (!rawPhone) return null;
+  const digits = String(rawPhone).replace(/\D/g, '');
+  if (digits.length === 9 && digits.startsWith('7')) {
+    return digits;
+  }
+  if (digits.length === 10 && digits.startsWith('07')) {
+    return digits.slice(1);
+  }
+  if (digits.length === 11 && digits.startsWith('947')) {
+    return digits.slice(2);
+  }
+  if (digits.length === 13 && digits.startsWith('00947')) {
+    return digits.slice(4);
+  }
+  return null;
+}
+
+/**
+ * 1. Request SMS OTP for Registered Field Technician or Operations Manager ONLY
+ *    (Strictly rejects unregistered or wrong phone numbers — never sends OTP to unknown numbers)
  */
 router.post('/request-otp', async (req, res) => {
-  const { phone } = req.body || {};
+  const { phone, role } = req.body || {};
+  const requestedRole = String(role || 'TECHNICIAN').toUpperCase() === 'MANAGER' ? 'MANAGER' : 'TECHNICIAN';
 
-  if (!phone) {
-    return res.status(400).json({ success: false, error: 'Mobile phone number is required' });
+  if (!phone || !String(phone).trim()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Mobile phone number is required.'
+    });
+  }
+
+  const input9Digits = extractSriLanka9Digits(phone);
+  if (!input9Digits) {
+    return res.status(400).json({
+      success: false,
+      error: `Invalid phone number "${phone}". Please enter a valid 10-digit Sri Lankan mobile number (e.g. 0777183981). OTP was NOT sent.`
+    });
   }
 
   try {
-    const normalized = normalizeSriLankaPhone(phone);
-    const cleanDigits = String(phone).replace(/\D/g, '');
-    const last9 = cleanDigits.length >= 9 ? cleanDigits.slice(-9) : cleanDigits;
-
-    // Search across all active staff (prefer TECHNICIAN first)
+    // Load all active staff
     const allStaff = db.prepare(`
       SELECT * FROM staff
       WHERE is_active = 1
-      ORDER BY CASE WHEN role = 'TECHNICIAN' THEN 0 ELSE 1 END, id ASC
+      ORDER BY id ASC
     `).all();
 
-    let matchedTech = allStaff.find(t => {
-      if (!t.phone) return false;
-      const tClean = String(t.phone).replace(/\D/g, '');
-      const tLast9 = tClean.length >= 9 ? tClean.slice(-9) : tClean;
-      return tClean === cleanDigits ||
-             (last9 && tLast9 && last9 === tLast9) ||
-             tClean.endsWith(cleanDigits) ||
-             cleanDigits.endsWith(tClean) ||
-             (normalized.e164 && normalizeSriLankaPhone(t.phone).e164 === normalized.e164);
+    // Strictly match by role AND exact 9-digit mobile number
+    const allowedRoles = requestedRole === 'MANAGER' ? ['MANAGER', 'ADMIN'] : ['TECHNICIAN'];
+
+    const matchedStaff = allStaff.find(t => {
+      if (!allowedRoles.includes(String(t.role || '').toUpperCase())) return false;
+      const staff9Digits = extractSriLanka9Digits(t.phone);
+      return Boolean(staff9Digits && staff9Digits === input9Digits);
     });
 
-    // If user enters a valid Sri Lankan mobile phone not yet registered, auto-provision as Field Technician
-    if (!matchedTech && cleanDigits.length >= 9) {
-      const localPhone = last9.length === 9 ? `0${last9}` : cleanDigits;
-      const username = `tech_${last9}`;
-      try {
-        const info = db.prepare(`
-          INSERT INTO staff (username, full_name, role, phone, email, is_active)
-          VALUES (?, ?, 'TECHNICIAN', ?, ?, 1)
-        `).run(username, `Field Specialist (${localPhone})`, localPhone, `${username}@pestcontrol.lk`);
-        matchedTech = db.prepare('SELECT * FROM staff WHERE id = ?').get(info.lastInsertRowid);
-      } catch (insertErr) {
-        matchedTech = allStaff[0];
-      }
-    }
+    if (!matchedStaff) {
+      // Check if this number is registered under a different role to give a clear message
+      const otherRoleMatch = allStaff.find(t => {
+        const staff9Digits = extractSriLanka9Digits(t.phone);
+        return Boolean(staff9Digits && staff9Digits === input9Digits);
+      });
 
-    if (!matchedTech) {
+      if (otherRoleMatch) {
+        const actualRoleLabel = otherRoleMatch.role === 'MANAGER' || otherRoleMatch.role === 'ADMIN' ? 'Manager' : otherRoleMatch.role;
+        const targetAppLabel = requestedRole === 'MANAGER' ? 'Manager App' : 'Technician App';
+        return res.status(403).json({
+          success: false,
+          error: `Phone number ${phone} belongs to ${otherRoleMatch.full_name} (${actualRoleLabel}) and is not authorized for ${targetAppLabel}. OTP code was NOT sent.`
+        });
+      }
+
+      const roleTitle = requestedRole === 'MANAGER' ? 'Operations Manager' : 'Field Technician';
       return res.status(404).json({
         success: false,
-        error: `Please enter a valid 9 or 10-digit Sri Lankan mobile number (e.g. 0771234567).`
+        error: `Wrong or unregistered phone number! "${phone}" is not registered as an active ${roleTitle} in the system. OTP code was NOT sent.`
       });
     }
+
+    // Invalidate any previous unverified OTPs for this staff member
+    db.prepare(`
+      UPDATE otp_verifications
+      SET is_verified = 1
+      WHERE technician_id = ? AND is_verified = 0
+    `).run(matchedStaff.id);
 
     // Generate 6-digit numeric OTP code
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
+    const localFormattedPhone = `0${input9Digits}`;
 
     // Save to otp_verifications table
     db.prepare(`
       INSERT INTO otp_verifications (phone, technician_id, otp_code, expires_at, is_verified, attempts)
       VALUES (?, ?, ?, ?, 0, 0)
-    `).run(cleanDigits, matchedTech.id, otpCode, expiresAt);
+    `).run(localFormattedPhone, matchedStaff.id, otpCode, expiresAt);
 
-    // Send SMS via active SMS Gateway (Text.lk / Notify.lk) safely
-    const smsMessage = `Your PestControl Pro verification code is: ${otpCode}. Valid for 10 minutes. Do not share this code.`;
-    const targetPhone = matchedTech.phone || phone;
+    // Send SMS via active SMS Gateway (Text.lk / Notify.lk)
+    const roleLabel = requestedRole === 'MANAGER' ? 'Manager App' : 'Technician App';
+    const smsMessage = `Your PestControl Pro ${roleLabel} verification code is: ${otpCode}. Valid for 10 minutes. Do not share this code.`;
+    const targetPhone = matchedStaff.phone || localFormattedPhone;
 
     let smsResult = { success: false };
     try {
       smsResult = await sendSMS({
         to: targetPhone,
         message: smsMessage,
-        recipientName: matchedTech.full_name
+        recipientName: matchedStaff.full_name
       });
     } catch (smsErr) {
       console.warn('[OTP SMS Gateway Warning]:', smsErr.message);
@@ -86,11 +125,12 @@ router.post('/request-otp', async (req, res) => {
 
     res.json({
       success: true,
-      message: `Verification code sent via SMS to ${targetPhone}`,
+      message: `Verified ${matchedStaff.full_name}! 1-Time OTP sent via SMS to ${localFormattedPhone}`,
       technician: {
-        id: matchedTech.id,
-        full_name: matchedTech.full_name,
-        phone: targetPhone
+        id: matchedStaff.id,
+        full_name: matchedStaff.full_name,
+        phone: localFormattedPhone,
+        role: requestedRole === 'MANAGER' ? 'MANAGER' : 'TECHNICIAN'
       },
       smsStatus: smsResult?.success ? 'DISPATCHED' : 'SIMULATED',
       debugCode: otpCode,
@@ -103,21 +143,30 @@ router.post('/request-otp', async (req, res) => {
 });
 
 /**
- * 2. Verify SMS OTP for Field Technician
+ * 2. Verify SMS OTP for Registered Field Technician or Operations Manager
  */
 router.post('/verify-otp', (req, res) => {
-  const { phone, otp_code, device_info } = req.body;
+  const { phone, otp_code, device_info, role } = req.body || {};
+  const requestedRole = String(role || 'TECHNICIAN').toUpperCase() === 'MANAGER' ? 'MANAGER' : 'TECHNICIAN';
 
   if (!phone || !otp_code) {
     return res.status(400).json({
       success: false,
-      error: 'Phone number and 6-digit verification code are required'
+      error: 'Registered phone number and 6-digit verification code are required.'
+    });
+  }
+
+  const input9Digits = extractSriLanka9Digits(phone);
+  if (!input9Digits) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid Sri Lankan mobile phone number.'
     });
   }
 
   try {
-    const cleanDigits = phone.replace(/\D/g, '');
     const cleanCode = String(otp_code).trim();
+    const allowedRoles = requestedRole === 'MANAGER' ? ['MANAGER', 'ADMIN'] : ['TECHNICIAN'];
 
     // Look for matching unverified OTP record within 10 minutes
     const records = db.prepare(`
@@ -131,64 +180,65 @@ router.post('/verify-otp', (req, res) => {
     `).all(cleanCode);
 
     const matchedRecord = records.find(r => {
-      const rClean = (r.phone || '').replace(/\D/g, '');
-      const tClean = (r.tech_phone || '').replace(/\D/g, '');
-      return rClean === cleanDigits ||
-             tClean === cleanDigits ||
-             rClean.endsWith(cleanDigits) ||
-             cleanDigits.endsWith(rClean);
+      if (!allowedRoles.includes(String(r.role || '').toUpperCase())) return false;
+      const r9 = extractSriLanka9Digits(r.phone);
+      const t9 = extractSriLanka9Digits(r.tech_phone);
+      return (r9 && r9 === input9Digits) || (t9 && t9 === input9Digits);
     });
 
     if (!matchedRecord) {
-      // Increment attempt counter if a record exists for phone
       db.prepare(`
         UPDATE otp_verifications
         SET attempts = attempts + 1
         WHERE phone LIKE ? AND is_verified = 0
-      `).run(`%${cleanDigits}%`);
+      `).run(`%${input9Digits}%`);
 
       return res.status(400).json({
         success: false,
-        error: 'Invalid or expired verification code. Please check the code or tap "Resend Code".'
+        error: 'Invalid or expired 6-digit OTP verification code. Please check the code or request a new OTP.'
       });
     }
 
     if (matchedRecord.is_active !== 1) {
       return res.status(401).json({
         success: false,
-        error: 'Technician account has been deactivated. Please contact admin.'
+        error: 'Staff account has been deactivated. Please contact admin.'
       });
     }
 
     // Mark OTP verified
     db.prepare('UPDATE otp_verifications SET is_verified = 1 WHERE id = ?').run(matchedRecord.id);
 
-    // Create permanent session token
-    const sessionToken = `tech_${crypto.randomBytes(24).toString('hex')}`;
+    const finalRole = requestedRole === 'MANAGER' ? 'MANAGER' : 'TECHNICIAN';
+    const tokenPrefix = finalRole === 'MANAGER' ? 'mgr' : 'tech';
+    const sessionToken = `${tokenPrefix}_${crypto.randomBytes(24).toString('hex')}`;
     const deviceStr = typeof device_info === 'object' ? JSON.stringify(device_info) : (device_info || 'Mobile PWA (SMS Verified)');
+    const localFormattedPhone = `0${input9Digits}`;
 
     db.prepare(`
       INSERT INTO technician_sessions (technician_id, phone, session_token, device_info)
       VALUES (?, ?, ?, ?)
-    `).run(matchedRecord.technician_id, matchedRecord.tech_phone || phone, sessionToken, deviceStr);
+    `).run(matchedRecord.technician_id, localFormattedPhone, sessionToken, deviceStr);
 
-    // Mirror to universal user_sessions
     db.prepare(`
       INSERT INTO user_sessions (user_id, session_token, role, device_info)
-      VALUES (?, ?, 'TECHNICIAN', ?)
-    `).run(matchedRecord.technician_id, sessionToken, deviceStr);
+      VALUES (?, ?, ?, ?)
+    `).run(matchedRecord.technician_id, sessionToken, finalRole, deviceStr);
+
+    const userPayload = {
+      id: matchedRecord.technician_id,
+      full_name: matchedRecord.full_name,
+      phone: localFormattedPhone,
+      role: finalRole,
+      email: matchedRecord.email
+    };
 
     res.json({
       success: true,
       message: `Verification successful! Welcome back, ${matchedRecord.full_name}.`,
       token: sessionToken,
-      technician: {
-        id: matchedRecord.technician_id,
-        full_name: matchedRecord.full_name,
-        phone: matchedRecord.tech_phone,
-        role: matchedRecord.role || 'TECHNICIAN',
-        email: matchedRecord.email
-      }
+      technician: userPayload,
+      user: userPayload
     });
   } catch (err) {
     console.error('[Verify OTP Error]:', err);
@@ -197,66 +247,64 @@ router.post('/verify-otp', (req, res) => {
 });
 
 /**
- * 3. Direct Phone Number Login (Preset or Bypass)
+ * 3. Direct Phone Number Lookup (Strictly registered staff only)
  */
 router.post('/login', (req, res) => {
-  const { phone, device_info } = req.body;
+  const { phone, device_info, role } = req.body || {};
+  const requestedRole = String(role || 'TECHNICIAN').toUpperCase() === 'MANAGER' ? 'MANAGER' : 'TECHNICIAN';
 
-  if (!phone) {
-    return res.status(400).json({ success: false, error: 'Mobile phone number is required' });
+  const input9Digits = extractSriLanka9Digits(phone);
+  if (!input9Digits) {
+    return res.status(400).json({ success: false, error: 'Valid registered mobile phone number is required.' });
   }
 
   try {
-    const normalized = normalizeSriLankaPhone(phone);
-    const cleanDigits = phone.replace(/\D/g, '');
-
-    // Search technician by phone variations
-    const techs = db.prepare(`
+    const allowedRoles = requestedRole === 'MANAGER' ? ['MANAGER', 'ADMIN'] : ['TECHNICIAN'];
+    const staffList = db.prepare(`
       SELECT * FROM staff
-      WHERE role = 'TECHNICIAN' AND is_active = 1
+      WHERE is_active = 1
+      ORDER BY id ASC
     `).all();
 
-    const matchedTech = techs.find(t => {
-      if (!t.phone) return false;
-      const tClean = t.phone.replace(/\D/g, '');
-      const tNorm = normalizeSriLankaPhone(t.phone).formattedPhone?.replace(/\D/g, '') || '';
-      return tClean === cleanDigits ||
-             tClean.endsWith(cleanDigits) ||
-             cleanDigits.endsWith(tClean) ||
-             (normalized.e164 && normalizeSriLankaPhone(t.phone).e164 === normalized.e164);
+    const matchedStaff = staffList.find(t => {
+      if (!allowedRoles.includes(String(t.role || '').toUpperCase())) return false;
+      const t9 = extractSriLanka9Digits(t.phone);
+      return Boolean(t9 && t9 === input9Digits);
     });
 
-    if (!matchedTech) {
+    if (!matchedStaff) {
       return res.status(404).json({
         success: false,
-        error: `Mobile number ${phone} is not registered as an active field technician.`
+        error: `Mobile number ${phone} is not registered as an active ${requestedRole === 'MANAGER' ? 'Manager' : 'Technician'}.`
       });
     }
 
-    // Generate persistent session token
-    const sessionToken = `tech_${crypto.randomBytes(24).toString('hex')}`;
+    const finalRole = requestedRole === 'MANAGER' ? 'MANAGER' : 'TECHNICIAN';
+    const tokenPrefix = finalRole === 'MANAGER' ? 'mgr' : 'tech';
+    const sessionToken = `${tokenPrefix}_${crypto.randomBytes(24).toString('hex')}`;
     const deviceStr = typeof device_info === 'object' ? JSON.stringify(device_info) : (device_info || 'Mobile PWA');
+    const localFormattedPhone = `0${input9Digits}`;
 
     db.prepare(`
       INSERT INTO technician_sessions (technician_id, phone, session_token, device_info)
       VALUES (?, ?, ?, ?)
-    `).run(matchedTech.id, matchedTech.phone || phone, sessionToken, deviceStr);
+    `).run(matchedStaff.id, localFormattedPhone, sessionToken, deviceStr);
 
     db.prepare(`
       INSERT INTO user_sessions (user_id, session_token, role, device_info)
-      VALUES (?, ?, 'TECHNICIAN', ?)
-    `).run(matchedTech.id, sessionToken, deviceStr);
+      VALUES (?, ?, ?, ?)
+    `).run(matchedStaff.id, sessionToken, finalRole, deviceStr);
 
     res.json({
       success: true,
-      message: `Welcome back, ${matchedTech.full_name}! 1-time login successful.`,
+      message: `Welcome back, ${matchedStaff.full_name}!`,
       token: sessionToken,
       technician: {
-        id: matchedTech.id,
-        full_name: matchedTech.full_name,
-        phone: matchedTech.phone,
-        role: matchedTech.role,
-        email: matchedTech.email
+        id: matchedStaff.id,
+        full_name: matchedStaff.full_name,
+        phone: localFormattedPhone,
+        role: finalRole,
+        email: matchedStaff.email
       }
     });
   } catch (err) {
@@ -277,9 +325,11 @@ router.get('/verify', (req, res) => {
 
   try {
     const session = db.prepare(`
-      SELECT s.*, tech.full_name, tech.phone as tech_phone, tech.role, tech.email, tech.is_active
+      SELECT s.*, tech.full_name, tech.phone as tech_phone, tech.role, tech.email, tech.is_active,
+             us.role as session_role
       FROM technician_sessions s
       JOIN staff tech ON s.technician_id = tech.id
+      LEFT JOIN user_sessions us ON us.session_token = s.session_token
       WHERE s.session_token = ?
     `).get(token);
 
@@ -295,7 +345,7 @@ router.get('/verify', (req, res) => {
         id: session.technician_id,
         full_name: session.full_name,
         phone: session.tech_phone,
-        role: session.role,
+        role: session.session_role || session.role,
         email: session.email
       }
     });

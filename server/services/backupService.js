@@ -315,5 +315,72 @@ module.exports = {
   restoreBackup,
   getDatabaseStats,
   getBackupPath,
+  resetAllSystemData,
+  LIVE_DB_PATH
+};
+
+async function resetAllSystemData(options = {}) {
+  const { resetFleet = false } = options;
+
+  // 1. Create an automatic pre-reset safety backup snapshot
+  const safetyBackup = await createBackup('MANUAL_INSTANT', 'Pre-Reset Automatic Safety Snapshot (Before Fresh System Reset)');
+
+  // 2. Wipe all operational tables inside a transaction with foreign keys temporarily deferred
+  db.pragma('foreign_keys = OFF');
+  const clearedCounts = {};
+
+  try {
+    const tablesToClear = [
+      'job_photos',
+      'job_logs',
+      'notifications',
+      'sms_logs',
+      'push_notification_logs',
+      'jobs',
+      'recurring_services',
+      'customer_locations',
+      'customers',
+      'otp_verifications'
+    ];
+
+    if (resetFleet) {
+      tablesToClear.push('vehicles', 'machines');
+    }
+
+    const tx = db.transaction(() => {
+      for (const tbl of tablesToClear) {
+        try {
+          const cnt = db.prepare(`SELECT COUNT(*) as c FROM ${tbl}`).get().c;
+          db.prepare(`DELETE FROM ${tbl}`).run();
+          db.prepare(`DELETE FROM sqlite_sequence WHERE name = ?`).run(tbl);
+          clearedCounts[tbl] = cnt;
+        } catch (e) {
+          // Table might not exist yet
+        }
+      }
+    });
+
+    tx();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+
+  // 3. Reclaim disk space and truncate WAL journal
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)');
+    db.exec('VACUUM');
+    db.pragma('optimize');
+  } catch (e) {
+    console.warn('[Reset System Data] Vacuum warning:', e.message);
+  }
+
+  return {
+    success: true,
+    message: `All operational data has been cleared for a fresh start! A safety backup was saved as "${safetyBackup.filename}".`,
+    safety_backup: safetyBackup,
+    cleared_counts: clearedCounts
+  };
+}
+const _end = {
   LIVE_DB_PATH
 };

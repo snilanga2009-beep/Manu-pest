@@ -7,6 +7,7 @@ const {
   createBackup,
   deleteBackup,
   restoreBackup,
+  resetAllSystemData,
   getDatabaseStats,
   getBackupPath,
   LIVE_DB_PATH
@@ -150,5 +151,16 @@ const handleClearCache = (req, res) => {
 
 router.post('/clear-cache', handleClearCache);
 router.get('/clear-cache', handleClearCache);
+
+router.post('/reset-all', async (req, res) => {
+  try {
+    const { reset_fleet = false } = req.body || {};
+    const result = await resetAllSystemData({ resetFleet: Boolean(reset_fleet) });
+    res.json(result);
+  } catch (err) {
+    console.error('[Reset All System Data Error]:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 module.exports = router;

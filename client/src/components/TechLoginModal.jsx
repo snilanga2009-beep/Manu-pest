@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Smartphone, Check, AlertCircle, Send, X, RefreshCw, CheckCircle2, Lock, Phone
+  Smartphone, Check, AlertCircle, Send, X, RefreshCw, CheckCircle2, Lock, Phone, HardHat, Briefcase
 } from 'lucide-react';
 import { saveTechSession } from '../services/offlineStorage';
 
-export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSuccess, onClose }) {
+export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSuccess, onClose, initialRole = 'TECHNICIAN' }) {
+  const [loginRole, setLoginRole] = useState(initialRole || 'TECHNICIAN');
   const [step, setStep] = useState(1); // 1: Enter phone, 2: Enter OTP
   const [phone, setPhone] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -23,12 +25,13 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
 
   if (!isOpen && isOpen !== undefined) return null;
 
-  // Step 1: Send SMS OTP
+  // Step 1: Strictly verify registered phone & send SMS OTP
   const handleRequestOtp = async (e) => {
     if (e) e.preventDefault();
     const cleanDigits = String(phone || '').replace(/\D/g, '');
     if (cleanDigits.length < 9) {
       setError('Please enter a valid 9 or 10-digit Sri Lankan mobile number.');
+      setOtpSent(false);
       return;
     }
 
@@ -40,7 +43,7 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
       const res = await fetch('/api/tech-auth/request-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: cleanDigits })
+        body: JSON.stringify({ phone: cleanDigits, role: loginRole })
       });
 
       const rawText = await res.text();
@@ -48,32 +51,17 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
       try {
         data = JSON.parse(rawText);
       } catch (parseErr) {
-        data = null;
+        throw new Error('Unable to reach verification server.');
       }
 
-      if (!data || !data.success) {
-        if (data && data.error) {
-          throw new Error(data.error);
-        }
-        const fallbackOtp = Math.floor(100000 + Math.random() * 900000).toString();
-        sessionStorage.setItem('tech_fallback_otp', fallbackOtp);
-        sessionStorage.setItem('tech_fallback_phone', cleanDigits);
-        setStep(2);
-        setCountdown(60);
-        setSmsFeedback({
-          message: `1-Time OTP Code generated for ${phone}!`,
-          debugCode: fallbackOtp
-        });
-        setOtpCode(fallbackOtp);
-        return;
+      if (!res.ok || !data || !data.success) {
+        setOtpSent(false);
+        setOtpCode('');
+        setStep(1);
+        throw new Error(data?.error || 'This phone number is not registered. OTP code was NOT sent.');
       }
 
-      sessionStorage.setItem('tech_fallback_otp', data.debugCode || '');
-      sessionStorage.setItem('tech_fallback_phone', cleanDigits);
-      if (data.technician) {
-        sessionStorage.setItem('tech_fallback_user', JSON.stringify(data.technician));
-      }
-
+      setOtpSent(true);
       setStep(2);
       setCountdown(60);
       setSmsFeedback({
@@ -84,29 +72,22 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
         setOtpCode(data.debugCode);
       }
     } catch (err) {
-      const msg = String(err.message || '');
-      if (msg.toLowerCase().includes('expected pattern') || msg.toLowerCase().includes('unexpected token')) {
-        const fallbackOtp = Math.floor(100000 + Math.random() * 900000).toString();
-        sessionStorage.setItem('tech_fallback_otp', fallbackOtp);
-        sessionStorage.setItem('tech_fallback_phone', cleanDigits);
-        setStep(2);
-        setCountdown(60);
-        setSmsFeedback({
-          message: `1-Time OTP Code ready for ${phone}!`,
-          debugCode: fallbackOtp
-        });
-        setOtpCode(fallbackOtp);
-      } else {
-        setError(msg || 'Failed to dispatch verification code.');
-      }
+      setOtpSent(false);
+      setOtpCode('');
+      setStep(1);
+      setError(err.message || 'Failed to verify phone number. OTP was NOT sent.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Step 2: Verify SMS OTP
+  // Step 2: Strictly Verify SMS OTP
   const handleVerifyOtp = async (e) => {
     if (e) e.preventDefault();
+    if (!otpSent) {
+      setStep(1);
+      return;
+    }
     if (!otpCode || otpCode.trim().length < 6) {
       setError('Please enter the 6-digit verification code received via SMS.');
       return;
@@ -123,6 +104,7 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
         body: JSON.stringify({
           phone: cleanDigits,
           otp_code: otpCode.trim(),
+          role: loginRole,
           device_info: {
             userAgent: navigator.userAgent,
             timestamp: new Date().toISOString()
@@ -135,48 +117,39 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
       try {
         data = JSON.parse(rawText);
       } catch (parseErr) {
-        data = null;
+        throw new Error('Unable to reach verification server.');
       }
 
-      let verifiedTech = data?.success ? data.technician : null;
-      let verifiedToken = data?.success ? data.token : null;
-
-      if (!verifiedTech) {
-        const savedOtp = sessionStorage.getItem('tech_fallback_otp');
-        if (savedOtp && savedOtp === otpCode.trim()) {
-          const cachedTechStr = sessionStorage.getItem('tech_fallback_user');
-          verifiedTech = cachedTechStr ? JSON.parse(cachedTechStr) : {
-            id: 4,
-            full_name: `Field Specialist (${cleanDigits})`,
-            phone: cleanDigits,
-            role: 'TECHNICIAN'
-          };
-          verifiedToken = `tech_local_${Date.now()}`;
-        }
-      }
-
-      if (!verifiedTech) {
+      if (!res.ok || !data || !data.success || !data.technician) {
         throw new Error(data?.error || 'Invalid or expired verification code.');
       }
 
-      // Save 1-Time Session in IndexedDB & LocalStorage
+      const finalRole = loginRole === 'MANAGER' ? 'MANAGER' : 'TECHNICIAN';
+      const sessionUser = {
+        ...data.technician,
+        role: finalRole,
+        appMode: finalRole === 'MANAGER' ? 'MANAGER_APP' : 'TECH_APP'
+      };
+
       await saveTechSession({
-        token: verifiedToken,
-        technician: verifiedTech,
-        phone: verifiedTech.phone
+        token: data.token,
+        technician: sessionUser,
+        phone: sessionUser.phone,
+        role: finalRole
       });
 
-      localStorage.setItem('auth_token', verifiedToken);
-      localStorage.setItem('auth_user', JSON.stringify({
-        ...verifiedTech,
-        role: 'TECHNICIAN'
-      }));
-      localStorage.setItem('tech_preferred_id', String(verifiedTech.id));
+      localStorage.setItem('auth_token', data.token);
+      localStorage.setItem('auth_user', JSON.stringify(sessionUser));
+      if (finalRole === 'MANAGER') {
+        localStorage.removeItem('tech_preferred_id');
+      } else {
+        localStorage.setItem('tech_preferred_id', String(sessionUser.id));
+      }
 
       if (onSuccess) {
-        onSuccess(verifiedTech, verifiedToken);
+        onSuccess(sessionUser, data.token);
       } else if (onLoginSuccess) {
-        onLoginSuccess(verifiedTech, verifiedToken);
+        onLoginSuccess(sessionUser, data.token);
       }
     } catch (err) {
       setError(err.message || 'Verification failed.');
@@ -184,6 +157,8 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
       setLoading(false);
     }
   };
+
+  const isManager = loginRole === 'MANAGER';
 
   return (
     <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -203,21 +178,59 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
           <div className="w-16 h-16 mx-auto rounded-2xl bg-white p-1 border-2 border-orange-400 flex items-center justify-center shadow-lg mb-2.5 overflow-hidden">
             <img
               src="/pest-tech-man.jpg"
-              alt="Pest Control Technician"
+              alt="Pest Control"
               className="w-full h-full object-cover rounded-xl"
               onError={(e) => {
                 e.currentTarget.style.display = 'none';
               }}
             />
           </div>
-          <h2 className="text-lg font-black tracking-tight">Technician 1-Time SMS Login</h2>
+          <h2 className="text-lg font-black tracking-tight">
+            {isManager ? 'Manager 1-Time SMS Login' : 'Technician 1-Time SMS Login'}
+          </h2>
           <p className="text-xs text-purple-200 font-semibold mt-0.5">
-            Enter your mobile phone &amp; 6-digit SMS OTP code
+            Registered staff phone numbers only
           </p>
         </div>
 
         {/* Form Body */}
         <div className="p-5 sm:p-6 space-y-4">
+          {/* Role Switcher */}
+          <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-xl border border-slate-200 gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setLoginRole('TECHNICIAN');
+                setStep(1);
+                setOtpSent(false);
+                setOtpCode('');
+                setError(null);
+              }}
+              className={`py-2 px-2.5 rounded-lg text-[11px] font-black flex items-center justify-center gap-1 transition cursor-pointer ${
+                !isManager ? 'bg-[#F97316] text-white shadow-xs' : 'text-slate-600 hover:bg-white'
+              }`}
+            >
+              <HardHat className="w-3.5 h-3.5 shrink-0" />
+              <span>Technician</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLoginRole('MANAGER');
+                setStep(1);
+                setOtpSent(false);
+                setOtpCode('');
+                setError(null);
+              }}
+              className={`py-2 px-2.5 rounded-lg text-[11px] font-black flex items-center justify-center gap-1 transition cursor-pointer ${
+                isManager ? 'bg-[#5B21B6] text-white shadow-xs' : 'text-slate-600 hover:bg-white'
+              }`}
+            >
+              <Briefcase className="w-3.5 h-3.5 shrink-0" />
+              <span>Manager</span>
+            </button>
+          </div>
+
           {error && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center gap-2 font-bold">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -230,14 +243,18 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
               <div className="space-y-1.5">
                 <label className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                   <Phone className="w-3.5 h-3.5 text-orange-500" />
-                  <span>Technician Mobile Number *</span>
+                  <span>{isManager ? 'Registered Manager Phone *' : 'Registered Technician Phone *'}</span>
                 </label>
                 <input
                   type="text"
                   inputMode="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="07XXXXXXXX or 94XXXXXXXX"
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    setOtpSent(false);
+                    setError(null);
+                  }}
+                  placeholder={isManager ? 'e.g. 0777183981' : 'e.g. 0729744526'}
                   autoFocus
                   className="w-full px-4 py-3.5 bg-slate-50 rounded-2xl border-2 border-slate-200 focus:bg-white focus:border-[#6D28D9] focus:outline-hidden font-mono font-black text-sm tracking-wider text-slate-900"
                 />
@@ -253,7 +270,7 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    <span>Send 1-Time SMS OTP Code</span>
+                    <span>Verify Phone &amp; Send OTP</span>
                   </>
                 )}
               </button>
@@ -298,13 +315,13 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
                   onClick={() => setStep(1)}
                   className="text-slate-500 hover:text-slate-800 font-bold underline cursor-pointer"
                 >
-                  Change Number
+                  Change Phone Number
                 </button>
                 <button
                   type="button"
-                  disabled={countdown > 0 || loading}
                   onClick={handleRequestOtp}
-                  className="text-emerald-600 hover:underline disabled:text-slate-400 disabled:no-underline font-bold cursor-pointer"
+                  disabled={countdown > 0 || loading}
+                  className="text-[#6D28D9] hover:text-[#4C1D95] font-black disabled:text-slate-400 cursor-pointer"
                 >
                   {countdown > 0 ? `Resend in ${countdown}s` : 'Resend Code'}
                 </button>
@@ -313,14 +330,14 @@ export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSucces
               <button
                 type="submit"
                 disabled={loading || otpCode.length < 6}
-                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-md shadow-emerald-200 disabled:opacity-50 transition flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3.5 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-black text-xs uppercase tracking-wider rounded-full shadow-md shadow-orange-200 disabled:opacity-50 transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 {loading ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />
                 ) : (
                   <>
                     <Check className="w-4 h-4" />
-                    <span>Verify &amp; Activate App</span>
+                    <span>Verify &amp; Sign In</span>
                   </>
                 )}
               </button>

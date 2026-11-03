@@ -6,6 +6,7 @@ import {
   MessageSquare, Camera, PenTool, ArrowRight, Shield, Sparkles, RefreshCw
 } from 'lucide-react';
 import { getReport, getStaff, getJobById } from '../api';
+import { downloadJobPdfReport, printJobReport, shareJobOnWhatsApp } from '../utils/jobExportUtils';
 
 export default function ReportsView({ onSelectJob }) {
   const [reportType, setReportType] = useState('daily');
@@ -688,7 +689,34 @@ export default function ReportsView({ onSelectJob }) {
                 Pest Control Master Operations Suite • Audit Trail Recorded
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => downloadJobPdfReport(selectedJobModal)}
+                  className="px-3.5 py-2 bg-[#F97316] hover:bg-[#EA580C] text-white text-xs font-black rounded-full transition cursor-pointer flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download PDF</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => shareJobOnWhatsApp(selectedJobModal, false)}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-full transition cursor-pointer flex items-center gap-1.5"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>WhatsApp Share</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => printJobReport(selectedJobModal)}
+                  className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-black rounded-full transition cursor-pointer flex items-center gap-1.5"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print</span>
+                </button>
+
                 {onSelectJob && selectedJobModal.id && (
                   <button
                     type="button"

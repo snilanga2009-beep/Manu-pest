@@ -64,6 +64,21 @@ export async function saveJobsOffline(jobsList) {
   });
 }
 
+export async function clearOfflineJobsAndQueue() {
+  try {
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(['jobs', 'offline_mutations'], 'readwrite');
+      tx.objectStore('jobs').clear();
+      tx.objectStore('offline_mutations').clear();
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    });
+  } catch (e) {
+    return false;
+  }
+}
+
 export async function getJobsOffline() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
