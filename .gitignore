@@ -26,3 +26,4 @@ yarn-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+scripts/vps_exec.js
