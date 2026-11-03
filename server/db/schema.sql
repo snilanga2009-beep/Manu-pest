@@ -270,4 +270,31 @@ CREATE TABLE IF NOT EXISTS user_sessions (
 CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);
 CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
 
+-- Operational Vehicles Fleet Management
+CREATE TABLE IF NOT EXISTS vehicles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  vehicle_number TEXT UNIQUE NOT NULL,
+  vehicle_type TEXT DEFAULT 'Van',
+  driver_name TEXT DEFAULT '',
+  notes TEXT DEFAULT '',
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_vehicles_num ON vehicles(vehicle_number);
+
+-- Equipment and Machines Management
+CREATE TABLE IF NOT EXISTS machines (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  machine_name TEXT NOT NULL,
+  machine_type TEXT DEFAULT 'Equipment',
+  serial_number TEXT DEFAULT '',
+  status TEXT DEFAULT 'AVAILABLE',
+  notes TEXT DEFAULT '',
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_machines_name ON machines(machine_name);
+
 

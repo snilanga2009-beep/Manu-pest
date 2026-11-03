@@ -81,6 +81,67 @@ try { db.exec("ALTER TABLE sms_settings ADD COLUMN template_tech_dispatch TEXT D
 try { db.exec("ALTER TABLE sms_settings ADD COLUMN template_completion TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE sms_settings ADD COLUMN custom_note TEXT DEFAULT ''"); } catch (e) {}
 
+// Fleet (vehicles) & Equipment (machines) migrations
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vehicles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      vehicle_number TEXT UNIQUE NOT NULL,
+      vehicle_type TEXT DEFAULT 'Van',
+      driver_name TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_vehicles_num ON vehicles(vehicle_number);
+  `);
+} catch (e) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS machines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      machine_name TEXT NOT NULL,
+      machine_type TEXT DEFAULT 'Equipment',
+      serial_number TEXT DEFAULT '',
+      status TEXT DEFAULT 'AVAILABLE',
+      notes TEXT DEFAULT '',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_machines_name ON machines(machine_name);
+  `);
+} catch (e) {}
+
+try { db.exec("ALTER TABLE jobs ADD COLUMN vehicle_id INTEGER REFERENCES vehicles(id)"); } catch (e) {}
+try { db.exec("ALTER TABLE jobs ADD COLUMN vehicle_no TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE jobs ADD COLUMN machine_id INTEGER REFERENCES machines(id)"); } catch (e) {}
+try { db.exec("ALTER TABLE jobs ADD COLUMN machine_name TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE jobs ADD COLUMN team_members TEXT DEFAULT ''"); } catch (e) {}
+
+// Seed default vehicles if empty
+try {
+  const vCount = db.prepare('SELECT COUNT(*) as count FROM vehicles').get().count;
+  if (vCount === 0) {
+    const insertV = db.prepare('INSERT INTO vehicles (vehicle_number, vehicle_type, driver_name) VALUES (?, ?, ?)');
+    insertV.run('WP CA-1234', 'Service Van', 'Wasantha');
+    insertV.run('WP CB-5678', 'Heavy Truck', 'Janadara');
+    insertV.run('WP GA-9012', 'Motorbike', 'Wijenayaka');
+  }
+} catch (e) {}
+
+// Seed default machines if empty
+try {
+  const mCount = db.prepare('SELECT COUNT(*) as count FROM machines').get().count;
+  if (mCount === 0) {
+    const insertM = db.prepare('INSERT INTO machines (machine_name, machine_type, status) VALUES (?, ?, ?)');
+    insertM.run('Thermal Fogger TF-35', 'Thermal Fogger', 'AVAILABLE');
+    insertM.run('ULV Cold Fogger U-260', 'ULV Fogger', 'AVAILABLE');
+    insertM.run('Motorized Blower Stihl SR420', 'Mist Blower', 'AVAILABLE');
+    insertM.run('Battery Compression Sprayer 16L', 'Knapsack Sprayer', 'AVAILABLE');
+  }
+} catch (e) {}
+
 // High-performance composite indexes for fast query execution & reactivity
 try {
   db.exec(`
