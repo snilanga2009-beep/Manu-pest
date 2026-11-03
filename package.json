@@ -1,6 +1,6 @@
 {
   "name": "pest-system",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "main": "index.js",
   "scripts": {
     "server": "node server/index.js",

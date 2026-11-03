@@ -1878,7 +1878,51 @@ export default function MobileTechnicianView({
 
       {/* VIEW 2: JOB FULL DETAILS VIEW (ACTIVE OR COMPLETED) */}
       {activeJob && (
-        <div className="p-4 space-y-4">
+        <div className="p-3 sm:p-4 space-y-3.5 pb-36 sm:pb-40">
+          {/* Top Quick Action Banner so technicians can Start or Finish immediately without scrolling */}
+          {activeJob.status !== 'COMPLETED' && (
+            !isManagerApp && isJobScheduledAfterToday(activeJob) ? (
+              <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-2.5 text-xs text-amber-900">
+                <Lock className="w-4 h-4 text-amber-700 shrink-0" />
+                <span>Job locked until scheduled date: <strong>{getJobEffectiveDate(activeJob)}</strong></span>
+              </div>
+            ) : activeJob.status !== 'IN_PROGRESS' ? (
+              <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 rounded-2xl p-3.5 sm:p-4 text-white shadow-lg shadow-orange-500/25 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-orange-100 flex items-center gap-1">
+                    <Play className="w-3.5 h-3.5 fill-current" /> Ready to Start Service
+                  </div>
+                  <div className="text-xs sm:text-sm font-black text-white truncate">
+                    Tap to Start Job &amp; Run Live Timer
+                  </div>
+                </div>
+                <button
+                  onClick={(e) => handleStartJob(activeJob.id, e, activeJob)}
+                  className="px-4 py-2.5 bg-white text-orange-600 hover:bg-orange-50 active:scale-95 font-black rounded-xl text-xs sm:text-sm flex items-center gap-1.5 shadow-md transition cursor-pointer shrink-0 min-h-[40px]"
+                >
+                  <Play className="w-4 h-4 fill-current" /> START NOW
+                </button>
+              </div>
+            ) : (
+              <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 rounded-2xl p-3.5 sm:p-4 text-white shadow-lg shadow-emerald-600/25 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-emerald-100 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5" /> Service In Progress
+                  </div>
+                  <div className="text-xs sm:text-sm font-black text-white truncate">
+                    Finished? Tap to complete &amp; sign
+                  </div>
+                </div>
+                <button
+                  onClick={(e) => handleOpenComplete(activeJob, e)}
+                  className="px-4 py-2.5 bg-white text-emerald-700 hover:bg-emerald-50 active:scale-95 font-black rounded-xl text-xs sm:text-sm flex items-center gap-1.5 shadow-md transition cursor-pointer shrink-0 min-h-[40px]"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> FINISH &amp; SIGN
+                </button>
+              </div>
+            )
+          )}
+
           {/* Live Work Timer Banner at top of Full Details if Job is IN_PROGRESS */}
           {activeJob.status === 'IN_PROGRESS' && renderLiveWorkTimer(activeJob)}
 
@@ -2083,14 +2127,14 @@ export default function MobileTechnicianView({
                   {activeJob.status !== 'IN_PROGRESS' ? (
                     <button
                       onClick={(e) => handleStartJob(activeJob.id, e, activeJob)}
-                      className="w-full py-4 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-orange-600/30 text-sm active:scale-98 transition cursor-pointer"
+                      className="w-full py-4 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-orange-600/30 text-sm active:scale-98 transition cursor-pointer min-h-[50px]"
                     >
                       <Play className="w-5 h-5 text-white" /> START JOB NOW (START TIMER)
                     </button>
                   ) : (
                     <button
                       onClick={(e) => handleOpenComplete(activeJob, e)}
-                      className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-200 text-sm cursor-pointer"
+                      className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-200 text-sm cursor-pointer min-h-[50px]"
                     >
                       <CheckCircle2 className="w-5 h-5" /> FINISH WORK &amp; COMPLETE JOB
                     </button>
@@ -2098,7 +2142,7 @@ export default function MobileTechnicianView({
 
                   <button
                     onClick={(e) => handleOpenPostpone(activeJob, e)}
-                    className="w-full py-3 bg-slate-200 text-slate-800 font-bold rounded-2xl flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-3.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-2xl flex items-center justify-center gap-2 cursor-pointer transition min-h-[44px]"
                   >
                     <Clock className="w-4 h-4" /> POSTPONE / RESCHEDULE
                   </button>
@@ -2141,7 +2185,7 @@ export default function MobileTechnicianView({
                 <button
                   type="button"
                   onClick={() => downloadJobPdfReport(activeJob)}
-                  className="py-2.5 px-2 rounded-xl bg-[#4C1D95] hover:bg-[#3B0764] text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                  className="py-2.5 px-2 rounded-xl bg-[#4C1D95] hover:bg-[#3B0764] text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer min-h-[40px]"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>PDF</span>
@@ -2149,7 +2193,7 @@ export default function MobileTechnicianView({
                 <button
                   type="button"
                   onClick={() => shareJobOnWhatsApp(activeJob, false)}
-                  className="py-2.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                  className="py-2.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer min-h-[40px]"
                 >
                   <Share2 className="w-3.5 h-3.5" />
                   <span>WhatsApp</span>
@@ -2157,7 +2201,7 @@ export default function MobileTechnicianView({
                 <button
                   type="button"
                   onClick={() => printJobReport(activeJob)}
-                  className="py-2.5 px-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  className="py-2.5 px-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer min-h-[40px]"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   <span>Print</span>
@@ -2168,172 +2212,231 @@ export default function MobileTechnicianView({
         </div>
       )}
 
-      {/* MOBILE JOB COMPLETION MODAL (With Live Start/Finish Time & Duration — Job Photo Panel Removed) */}
+      {/* MOBILE JOB COMPLETION MODAL */}
       {showCompleteModal && jobToComplete && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center">
-          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h2 className="font-black text-slate-900 text-base flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                <span>Finish Work &amp; Complete Job</span>
-              </h2>
-              <button onClick={() => setShowCompleteModal(false)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <form
+            onSubmit={handleCompleteSubmit}
+            className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92dvh] sm:max-h-[88dvh] flex flex-col overflow-hidden"
+          >
+            {/* 1. FIXED HEADER */}
+            <div className="shrink-0 px-4 py-3 sm:px-5 sm:py-3.5 border-b border-slate-100 flex items-center justify-between bg-white">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="font-black text-slate-900 text-sm sm:text-base leading-tight truncate">
+                    Finish Work &amp; Complete Job
+                  </h2>
+                  <div className="text-[11px] text-slate-500 font-medium truncate">
+                    {jobToComplete.customer_name} • {jobToComplete.job_code}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCompleteModal(false)}
+                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-xl hover:bg-slate-100 transition cursor-pointer shrink-0"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Live Start Time, Finish Time & Duration Summary Box inside Complete Modal */}
-            <div className="p-3.5 rounded-2xl bg-slate-900 text-white space-y-2 text-xs border border-emerald-400/40">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300 flex items-center gap-1">
-                  <Timer className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Work Time Summary ({jobToComplete.scheduled_date || todayStr})</span>
-                </span>
-                <span className="px-2 py-0.5 rounded-md bg-amber-400 text-slate-950 font-mono font-black text-xs">
-                  {formatElapsedHms(jobToComplete.actual_start_time || new Date().toISOString(), nowTick)}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/15">
-                <div>
-                  <div className="text-[9px] uppercase text-slate-400 font-bold">Start Time</div>
-                  <div className="font-mono font-black text-emerald-300 text-xs">
-                    {formatTimeOnlyDisplay(jobToComplete.actual_start_time || new Date(nowTick))}
+            {/* 2. SCROLLABLE BODY */}
+            <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-4 text-xs">
+              {/* Work Time Summary Box */}
+              <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-900 text-white space-y-2 text-xs border border-emerald-400/40">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300 flex items-center gap-1">
+                    <Timer className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Work Time Summary ({jobToComplete.scheduled_date || todayStr})</span>
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-amber-400 text-slate-950 font-mono font-black text-xs">
+                    {formatElapsedHms(jobToComplete.actual_start_time || new Date().toISOString(), nowTick)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/15">
+                  <div>
+                    <div className="text-[9px] uppercase text-slate-400 font-bold">Start Time</div>
+                    <div className="font-mono font-black text-emerald-300 text-xs">
+                      {formatTimeOnlyDisplay(jobToComplete.actual_start_time || new Date(nowTick))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] uppercase text-slate-400 font-bold">Finish Time (Now)</div>
+                    <div className="font-mono font-black text-amber-300 text-xs">
+                      {formatTimeOnlyDisplay(new Date(nowTick))}
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div className="text-[9px] uppercase text-slate-400 font-bold">Finish Time (Now)</div>
-                  <div className="font-mono font-black text-amber-300 text-xs">
-                    {formatTimeOnlyDisplay(new Date(nowTick))}
-                  </div>
-                </div>
               </div>
-            </div>
 
-            <form onSubmit={handleCompleteSubmit} className="space-y-3 text-xs">
+              {/* Service Notes */}
               <div>
-                <label className="font-bold text-slate-700">Service Notes / Findings</label>
+                <label className="font-bold text-slate-700 block mb-1">Service Notes / Findings</label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   value={completionNotes}
                   onChange={(e) => setCompletionNotes(e.target.value)}
                   placeholder="Record treatment chemical dosage, pest activity, infested zones..."
-                  className="w-full mt-1 p-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                  className="w-full p-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden text-xs sm:text-sm"
                 />
               </div>
 
-              {/* Touch Signature Pad for Customer */}
+              {/* Customer Touch Sign-off Section */}
               <div className="pt-1">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="font-bold text-slate-700 flex items-center gap-1.5">
-                    <PenTool className="w-4 h-4 text-emerald-600" /> Customer Signature
+                    <PenTool className="w-4 h-4 text-emerald-600" /> Customer Touch Sign-off
                   </label>
-                  {!showSignaturePad && (
+                  {customerSignature && (
                     <button
                       type="button"
                       onClick={() => setShowSignaturePad(true)}
                       className="text-xs font-bold text-emerald-600 hover:underline cursor-pointer"
                     >
-                      {customerSignature ? 'Change Signature' : '+ Open Signature Pad'}
+                      Change Signature
                     </button>
                   )}
                 </div>
 
                 {customerSignature ? (
-                  <div className="border-2 border-emerald-200 rounded-xl p-2 bg-emerald-50/30">
-                    <img src={customerSignature} alt="Customer signature" className="max-h-20 mx-auto" />
+                  <div className="border-2 border-emerald-300 rounded-2xl p-2.5 bg-emerald-50/50 flex flex-col items-center gap-1.5">
+                    <img src={customerSignature} alt="Customer signature" className="max-h-20 object-contain mx-auto" />
+                    <div className="text-[10px] font-bold text-emerald-700 flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" /> Signature captured successfully
+                    </div>
                   </div>
                 ) : (
-                  <div className="p-3 border-2 border-dashed border-slate-200 rounded-xl text-center text-slate-400 text-xs">
-                    Tap "+ Open Signature Pad" to let client sign on screen
-                  </div>
-                )}
-
-                {showSignaturePad && (
-                  <div className="mt-2">
-                    <SignaturePad
-                      onSave={(dataUrl) => {
-                        setCustomerSignature(dataUrl);
-                        setShowSignaturePad(false);
-                      }}
-                      onCancel={() => setShowSignaturePad(false)}
-                      title="Customer Touch Sign-off"
-                    />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowSignaturePad(true)}
+                    className="w-full p-4 border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/40 hover:bg-emerald-50/80 rounded-2xl text-center transition cursor-pointer active:scale-99 flex flex-col items-center justify-center gap-1.5"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-xs">
+                      <PenTool className="w-5 h-5" />
+                    </div>
+                    <span className="font-black text-slate-800 text-xs sm:text-sm">
+                      ✍️ Tap Here to Open Customer Touch Sign Screen
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      Client signs with finger directly on phone screen
+                    </span>
+                  </button>
                 )}
               </div>
+            </div>
 
-              <div className="pt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCompleteModal(false)}
-                  className="w-1/3 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-2/3 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl shadow-lg shadow-emerald-200 cursor-pointer"
-                >
-                  {submitting ? 'Saving...' : 'SAVE & FINISH JOB'}
-                </button>
-              </div>
-            </form>
+            {/* 3. FIXED STICKY ACTION FOOTER */}
+            <div className="shrink-0 bg-slate-50 border-t border-slate-200 p-3 sm:p-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex gap-2.5 shadow-md">
+              <button
+                type="button"
+                onClick={() => setShowCompleteModal(false)}
+                className="w-1/3 py-3 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-200 cursor-pointer text-xs sm:text-sm active:scale-98 transition min-h-[44px]"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-2/3 py-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black rounded-xl shadow-lg shadow-emerald-600/20 cursor-pointer text-xs sm:text-sm flex items-center justify-center gap-2 active:scale-98 transition disabled:opacity-50 min-h-[44px]"
+              >
+                {submitting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" /> Saving...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" /> SAVE &amp; FINISH JOB
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* DEDICATED FULL-SCREEN/HIGH-PRIORITY CUSTOMER TOUCH SIGN-OFF MODAL */}
+      {showSignaturePad && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[70] flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+          <div className="w-full max-w-lg">
+            <SignaturePad
+              onSave={(dataUrl) => {
+                setCustomerSignature(dataUrl);
+                setShowSignaturePad(false);
+              }}
+              onCancel={() => setShowSignaturePad(false)}
+              title={`Customer Sign: ${jobToComplete?.customer_name || activeJob?.customer_name || 'Client'}`}
+            />
           </div>
         </div>
       )}
 
       {/* MOBILE POSTPONE MODAL */}
       {showPostponeModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center">
-          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h2 className="font-black text-slate-900 text-base">Postpone Service</h2>
-              <button onClick={() => setShowPostponeModal(false)} className="text-slate-400">
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <form
+            onSubmit={handlePostponeSubmit}
+            className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[90dvh] flex flex-col overflow-hidden"
+          >
+            {/* Header */}
+            <div className="shrink-0 px-4 py-3 sm:px-5 border-b border-slate-100 flex items-center justify-between bg-white">
+              <h2 className="font-black text-slate-900 text-sm sm:text-base flex items-center gap-2">
+                <Clock className="w-4 h-4 text-purple-600" />
+                <span>Postpone Service</span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowPostponeModal(false)}
+                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-xl hover:bg-slate-100 cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handlePostponeSubmit} className="space-y-3 text-xs">
+            {/* Scrollable Body */}
+            <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-3.5 text-xs">
               <div>
-                <label className="font-bold text-slate-700">Reschedule To Date *</label>
+                <label className="font-bold text-slate-700 block mb-1">Reschedule To Date *</label>
                 <input
                   type="date"
                   required
                   value={postponeDate}
                   onChange={(e) => setPostponeDate(e.target.value)}
-                  className="w-full mt-1 p-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                  className="w-full p-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden text-xs sm:text-sm font-semibold"
                 />
               </div>
 
               <div>
-                <label className="font-bold text-slate-700">Reason</label>
+                <label className="font-bold text-slate-700 block mb-1">Reason</label>
                 <textarea
                   rows={2}
                   value={postponeReason}
                   onChange={(e) => setPostponeReason(e.target.value)}
                   placeholder="e.g. Factory closed, customer request"
-                  className="w-full mt-1 p-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden"
+                  className="w-full p-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden text-xs sm:text-sm"
                 />
               </div>
+            </div>
 
-              <div className="pt-2 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowPostponeModal(false)}
-                  className="w-1/3 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="w-2/3 py-3 bg-indigo-600 text-white font-black rounded-xl"
-                >
-                  CONFIRM POSTPONE
-                </button>
-              </div>
-            </form>
-          </div>
+            {/* Sticky Footer */}
+            <div className="shrink-0 bg-slate-50 border-t border-slate-200 p-3 sm:p-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowPostponeModal(false)}
+                className="w-1/3 py-3 bg-white text-slate-700 font-bold rounded-xl border border-slate-200 text-xs sm:text-sm cursor-pointer min-h-[44px]"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="w-2/3 py-3 bg-purple-700 hover:bg-purple-800 text-white font-black rounded-xl text-xs sm:text-sm shadow-md cursor-pointer min-h-[44px]"
+              >
+                CONFIRM POSTPONE
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
